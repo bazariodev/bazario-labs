@@ -1,0 +1,52 @@
+{
+  "name": "@bazario/fsm",
+  "version": "0.0.0",
+  "description": "Lightweight, configurable TypeScript finite state machine for frontend runtimes, realtime clients, and telephony workflows.",
+  "license": "MIT",
+  "author": "Bazario",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Bazariodev/bazario-labs.git",
+    "directory": "packages/fsm"
+  },
+  "homepage": "https://github.com/Bazariodev/bazario-labs/tree/main/packages/fsm#readme",
+  "bugs": {
+    "url": "https://github.com/Bazariodev/bazario-labs/issues"
+  },
+  "keywords": [
+    "fsm",
+    "finite-state-machine",
+    "state-machine",
+    "typescript",
+    "realtime",
+    "telephony",
+    "sip",
+    "ucaas"
+  ],
+  "type": "module",
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "require": "./dist/index.cjs"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "sideEffects": false,
+  "scripts": {
+    "build": "tsup",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}
