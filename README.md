@@ -6,7 +6,7 @@ TypeScript SDKs and tools for the UCaaS domain — realtime, SIP, chat, and tele
 
 | Package | Description |
 | --- | --- |
-| [`@bazario/fsm`](./packages/fsm) | Lightweight, configurable TypeScript finite state machine for frontend runtimes, realtime clients, and telephony workflows. |
+| [`@bazariodev/fsm`](./packages/fsm) | Lightweight, configurable TypeScript finite state machine for frontend runtimes, realtime clients, and telephony workflows. |
 
 ## Getting started
 

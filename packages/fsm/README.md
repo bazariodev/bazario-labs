@@ -1,4 +1,4 @@
-# @bazario/fsm
+# @bazariodev/fsm
 
 Lightweight, configurable TypeScript finite state machine for frontend runtimes, realtime clients, and telephony workflows.
 
@@ -7,9 +7,9 @@ Lightweight, configurable TypeScript finite state machine for frontend runtimes,
 ## Install
 
 ```sh
-npm install @bazario/fsm
+npm install @bazariodev/fsm
 # or
-pnpm add @bazario/fsm
+pnpm add @bazariodev/fsm
 ```
 
 ## License
