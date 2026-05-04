@@ -1,10 +1,10 @@
 import { describe, expect, it, vi } from 'vitest';
 
-import { createLogger, createMachine } from './helpers.js';
+import { type CallContext, createLogger, createMachine } from './helpers.js';
 
 describe('Fsm can', () => {
   it('checks guards with the full event without side effects', () => {
-    const reducer = vi.fn((context: Readonly<{ attempts: number }>) => ({
+    const reducer = vi.fn((context: Readonly<CallContext>) => ({
       ...context,
       attempts: context.attempts + 1,
     }));

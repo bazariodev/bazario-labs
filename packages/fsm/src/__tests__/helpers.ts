@@ -68,9 +68,8 @@ export const createMachine = (
 ): Fsm<CallState, CallEvent, CallContext> =>
   new Fsm<CallState, CallEvent, CallContext>(createConfig(config));
 
-export const createLogger = () =>
-  ({
-    debug: vi.fn(),
-    warn: vi.fn(),
-    error: vi.fn(),
-  }) satisfies Logger;
+export const createLogger = (): Logger => ({
+  debug: vi.fn(),
+  warn: vi.fn(),
+  error: vi.fn(),
+});

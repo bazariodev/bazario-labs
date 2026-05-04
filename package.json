@@ -28,7 +28,7 @@
     "changeset": "changeset",
     "version-packages": "changeset version",
     "release": "pnpm build && changeset publish",
-    "health":"pnpm run tsc && pnpm run lint && pnpm run test && pnpm run build"
+    "health": "pnpm run tsc && pnpm run lint && pnpm run test && pnpm run build"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.4.13",
