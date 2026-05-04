@@ -1,3 +1,9 @@
+import { hasOwn, NOOP_LOGGER, WILDCARD_STATE } from './internal/predicates.js';
+import {
+  type NormalizedTransitionMap,
+  normalizeTransitions,
+  validateConfig,
+} from './internal/validation.js';
 import type {
   FsmConfig,
   FsmCore,
@@ -7,43 +13,8 @@ import type {
   Logger,
   StateDefinition,
   TransitionDefinition,
-  TransitionMap,
   Unsubscribe,
 } from './types.js';
-
-const WILDCARD_STATE: '*' = '*';
-
-const NOOP_LOGGER: Logger = {
-  debug: () => undefined,
-  warn: () => undefined,
-  error: () => undefined,
-};
-
-const hasOwn = <TObject extends object>(
-  object: TObject,
-  key: PropertyKey,
-): key is keyof TObject => Object.hasOwn(object, key);
-
-type TransitionSource<TState extends string> = TState | typeof WILDCARD_STATE;
-
-type TransitionBucket<
-  TState extends string,
-  TEvent extends FsmEvent,
-  TContext,
-> = Partial<
-  Record<
-    TEvent['type'],
-    ReadonlyArray<TransitionDefinition<TState, TEvent, TContext>>
-  >
->;
-
-type NormalizedTransitionMap<
-  TState extends string,
-  TEvent extends FsmEvent,
-  TContext,
-> = Partial<
-  Record<TransitionSource<TState>, TransitionBucket<TState, TEvent, TContext>>
->;
 
 export class Fsm<TState extends string, TEvent extends FsmEvent, TContext>
   implements FsmCore<TState, TEvent, TContext>
@@ -74,11 +45,9 @@ export class Fsm<TState extends string, TEvent extends FsmEvent, TContext>
     this.#onTransitionStart = config.onTransitionStart;
     this.#onTransitionBeforeCommit = config.onTransitionBeforeCommit;
 
-    const normalizedTransitions = this.#normalizeTransitions(
-      config.transitions,
-    );
+    const normalizedTransitions = normalizeTransitions(config.transitions);
 
-    this.#validateConfig(config, normalizedTransitions);
+    validateConfig(config, normalizedTransitions);
 
     this.#states = config.states;
     this.#transitions = normalizedTransitions;
@@ -146,10 +115,21 @@ export class Fsm<TState extends string, TEvent extends FsmEvent, TContext>
       const to = transition.target;
       const isStateChange = to !== from;
 
-      this.#invokeTransitionStart(from, to, event, previousContext);
+      this.#invokeHook(
+        this.#onTransitionStart,
+        { from, to, event, context: previousContext },
+        'fsm: transition start hook failed',
+        { name: this.name, from, to, eventType: event.type },
+      );
 
-      if (isStateChange)
-        this.#invokeStateLeave(from, to, event, previousContext);
+      if (isStateChange) {
+        this.#invokeHook(
+          this.#states[from].onLeave,
+          { from, to, event, context: previousContext },
+          'fsm: state leave hook failed',
+          { name: this.name, from, to, eventType: event.type },
+        );
+      }
 
       const nextContext = this.#applyContextReducer(
         transition,
@@ -164,15 +144,26 @@ export class Fsm<TState extends string, TEvent extends FsmEvent, TContext>
         version: currentSnapshot.version + 1,
       });
 
-      if (isStateChange)
-        this.#invokeStateEnter(from, to, event, nextSnapshot.context);
+      if (isStateChange) {
+        this.#invokeHook(
+          this.#states[to].onEnter,
+          { from, to, event, context: nextSnapshot.context },
+          'fsm: state enter hook failed',
+          { name: this.name, from, to, eventType: event.type },
+        );
+      }
 
-      this.#invokeTransitionBeforeCommit(
-        from,
-        to,
-        event,
-        previousContext,
-        nextSnapshot.context,
+      this.#invokeHook(
+        this.#onTransitionBeforeCommit,
+        {
+          from,
+          to,
+          event,
+          previousContext,
+          nextContext: nextSnapshot.context,
+        },
+        'fsm: transition before commit hook failed',
+        { name: this.name, from, to, eventType: event.type },
       );
 
       this.#snapshotRef = nextSnapshot;
@@ -198,45 +189,18 @@ export class Fsm<TState extends string, TEvent extends FsmEvent, TContext>
     return () => this.#subscribers.delete(listener);
   }
 
-  #invokeTransitionStart(
-    from: TState,
-    to: TState,
-    event: TEvent,
-    context: Readonly<TContext>,
+  #invokeHook<TPayload>(
+    hook: ((payload: TPayload) => void) | undefined,
+    payload: TPayload,
+    errorMessage: string,
+    errorMeta: Record<string, unknown>,
   ): void {
-    if (!this.#onTransitionStart) return;
+    if (!hook) return;
 
     try {
-      this.#onTransitionStart({ from, to, event, context });
+      hook(payload);
     } catch (error) {
-      this.#logAndRethrow(error, 'fsm: transition start hook failed', {
-        name: this.name,
-        from,
-        to,
-        eventType: event.type,
-      });
-    }
-  }
-
-  #invokeStateLeave(
-    from: TState,
-    to: TState,
-    event: TEvent,
-    context: Readonly<TContext>,
-  ): void {
-    const definition = this.#states[from];
-
-    if (!definition.onLeave) return;
-
-    try {
-      definition.onLeave({ from, to, event, context });
-    } catch (error) {
-      this.#logAndRethrow(error, 'fsm: state leave hook failed', {
-        name: this.name,
-        from,
-        to,
-        eventType: event.type,
-      });
+      this.#logAndRethrow(error, errorMessage, errorMeta);
     }
   }
 
@@ -255,55 +219,6 @@ export class Fsm<TState extends string, TEvent extends FsmEvent, TContext>
         state: this.state,
         eventType: event.type,
         target: transition.target,
-      });
-    }
-  }
-
-  #invokeStateEnter(
-    from: TState,
-    to: TState,
-    event: TEvent,
-    context: Readonly<TContext>,
-  ): void {
-    const definition = this.#states[to];
-
-    if (!definition.onEnter) return;
-
-    try {
-      definition.onEnter({ from, to, event, context });
-    } catch (error) {
-      this.#logAndRethrow(error, 'fsm: state enter hook failed', {
-        name: this.name,
-        from,
-        to,
-        eventType: event.type,
-      });
-    }
-  }
-
-  #invokeTransitionBeforeCommit(
-    from: TState,
-    to: TState,
-    event: TEvent,
-    previousContext: Readonly<TContext>,
-    nextContext: Readonly<TContext>,
-  ): void {
-    if (!this.#onTransitionBeforeCommit) return;
-
-    try {
-      this.#onTransitionBeforeCommit({
-        from,
-        to,
-        event,
-        previousContext,
-        nextContext,
-      });
-    } catch (error) {
-      this.#logAndRethrow(error, 'fsm: transition before commit hook failed', {
-        name: this.name,
-        from,
-        to,
-        eventType: event.type,
       });
     }
   }
@@ -348,23 +263,12 @@ export class Fsm<TState extends string, TEvent extends FsmEvent, TContext>
   }
 
   #invokeInitialEnter(): void {
-    const definition = this.#states[this.state];
-
-    if (!definition.onEnter) return;
-
-    try {
-      definition.onEnter({
-        from: null,
-        to: this.state,
-        event: null,
-        context: this.context,
-      });
-    } catch (error) {
-      this.#logAndRethrow(error, 'fsm: initial enter hook failed', {
-        name: this.name,
-        state: this.state,
-      });
-    }
+    this.#invokeHook(
+      this.#states[this.state].onEnter,
+      { from: null, to: this.state, event: null, context: this.context },
+      'fsm: initial enter hook failed',
+      { name: this.name, state: this.state },
+    );
   }
 
   #freezeSnapshot(
@@ -390,82 +294,6 @@ export class Fsm<TState extends string, TEvent extends FsmEvent, TContext>
     return;
   }
 
-  #normalizeTransitions(
-    transitions: TransitionMap<TState, TEvent, TContext>,
-  ): NormalizedTransitionMap<TState, TEvent, TContext> {
-    const normalized: NormalizedTransitionMap<TState, TEvent, TContext> = {};
-
-    for (const source in transitions) {
-      if (!hasOwn(transitions, source)) continue;
-
-      const eventMap = transitions[source];
-      const bucket: TransitionBucket<TState, TEvent, TContext> = {};
-
-      for (const eventType in eventMap) {
-        if (!hasOwn(eventMap, eventType) || !eventMap[eventType]) continue;
-
-        const entry = eventMap[eventType];
-
-        bucket[eventType] = Array.isArray(entry) ? [...entry] : [entry];
-      }
-
-      normalized[source] = bucket;
-    }
-
-    return normalized;
-  }
-
-  #validateConfig(
-    config: FsmConfig<TState, TEvent, TContext>,
-    transitions: NormalizedTransitionMap<TState, TEvent, TContext>,
-  ): void {
-    if (!config.name.trim()) throw new Error('fsm: name must not be empty');
-
-    if (!(config.initial in config.states)) {
-      throw new Error(
-        `fsm: initial state "${config.initial}" must exist in states`,
-      );
-    }
-
-    if (WILDCARD_STATE in config.states) {
-      throw new Error(
-        'fsm: "*" is reserved and cannot be used as a state name',
-      );
-    }
-
-    for (const source in transitions) {
-      if (!hasOwn(transitions, source)) continue;
-
-      const eventMap = transitions[source];
-      if (eventMap === undefined) continue;
-
-      if (source !== WILDCARD_STATE && !(source in config.states)) {
-        throw new Error(
-          `fsm: transition source state "${source}" must exist in states`,
-        );
-      }
-
-      for (const eventType in eventMap) {
-        if (!hasOwn(eventMap, eventType)) continue;
-
-        const definitions = eventMap[eventType];
-        if (!definitions) continue;
-
-        for (const definition of definitions) {
-          if (definition.target === WILDCARD_STATE) {
-            throw new Error('fsm: "*" cannot be used as a transition target');
-          }
-
-          if (!(definition.target in config.states)) {
-            throw new Error(
-              `fsm: transition target "${definition.target}" must exist in states`,
-            );
-          }
-        }
-      }
-    }
-  }
-
   #logAndRethrow(
     error: unknown,
     message: string,
@@ -475,7 +303,7 @@ export class Fsm<TState extends string, TEvent extends FsmEvent, TContext>
     throw error;
   }
 
-  #throwRuntimeError(message: string, meta?: unknown): never {
+  #throwRuntimeError(message: string, meta: Record<string, unknown>): never {
     this.#logger.error(message, meta);
     throw new Error(message);
   }
