@@ -76,7 +76,7 @@ jobs:
             packages/*/node_modules
           key: node-modules-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
 
-      - run: pnpm typecheck
+      - run: pnpm tsc
 
   test:
     name: Test
