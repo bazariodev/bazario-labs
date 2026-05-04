@@ -1,1 +1,20 @@
-export {};
+export { Fsm } from './fsm.js';
+export type {
+  ContextReducer,
+  FsmConfig,
+  FsmCore,
+  FsmEvent,
+  FsmSnapshot,
+  FsmSubscriber,
+  Guard,
+  Logger,
+  StateDefinition,
+  StateEnterPayload,
+  StateLeavePayload,
+  TransitionCommitPayload,
+  TransitionDefinition,
+  TransitionEntry,
+  TransitionMap,
+  TransitionStartPayload,
+  Unsubscribe,
+} from './types.js';

@@ -6,7 +6,14 @@
     "useIgnoreFile": true
   },
   "files": {
-    "includes": ["**/*.ts", "**/*.tsx", "**/*.js", "**/*.cjs", "**/*.mjs", "**/*.json"]
+    "includes": [
+      "**/*.ts",
+      "**/*.tsx",
+      "**/*.js",
+      "**/*.cjs",
+      "**/*.mjs",
+      "**/*.json"
+    ]
   },
   "formatter": {
     "enabled": true,
@@ -28,8 +35,8 @@
         "noUnusedVariables": "error",
         "noUnusedImports": "error"
       },
-      "style": {
-        "noDuplicateImports": "error"
+      "suspicious": {
+        "noConfusingVoidType": "off"
       }
     }
   },
