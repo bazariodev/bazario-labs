@@ -1,7 +1,8 @@
 # ADR: Base Core FSM Architecture
 
-- Status: Proposed
+- Status: Accepted
 - Date: 2026-05-03
+- Accepted: 2026-05-24
 
 ## Context
 
@@ -407,6 +408,10 @@ The constructor should fail fast for invalid configuration such as:
 - use of `*` as a real state name
 - use of `*` as a transition target
 
+State membership checks must use `Object.hasOwn`, never the `in` operator, so prototype keys such as `toString` cannot satisfy validation. State and transition definitions must be normalized into frozen internal copies during construction so callers cannot mutate runtime behavior by changing their config object afterwards.
+
+Non-goals: the base core does not perform `typeof` validation of `name`, `initial`, or the `logger` shape. The package is TypeScript-first and the generic constraints already enforce these. Pure JavaScript callers that pass malformed values will receive a generic `TypeError` from the offending operation rather than a curated message. This is intentional to keep validation surface narrow; a separate input-hardening layer can sit on top of the core if a future use case requires it.
+
 ## Minimal Public API
 
 The first version should keep the public API intentionally small.
@@ -421,6 +426,8 @@ Recommended public surface:
 - `send(event)`
 - `can(event)`
 - `subscribe(listener)`
+
+The package also exports an `FsmCore<TState, TEvent, TContext>` interface that mirrors the class's public surface. The class explicitly implements this interface. Consumers may depend on `FsmCore` instead of the concrete class for dependency injection and test doubles. The interface is a documented seam, not an extension point — the class remains the only runtime implementation shipped by this package.
 
 Recommended class shape:
 

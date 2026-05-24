@@ -212,6 +212,81 @@ describe('Fsm validation', () => {
       },
       'fsm: transition target "missing" must exist in states',
     ],
+    [
+      'initial state names inherited from Object.prototype',
+      {
+        ...createConfig(),
+        initial: 'toString',
+      },
+      'fsm: initial state "toString" must exist in states',
+    ],
+    [
+      'transition source names inherited from Object.prototype',
+      {
+        ...createConfig(),
+        transitions: {
+          ...createTransitions(),
+          toString: {
+            DIAL: { target: 'idle' },
+          },
+        },
+      },
+      'fsm: transition source state "toString" must exist in states',
+    ],
+    [
+      'transition targets inherited from Object.prototype',
+      {
+        ...createConfig(),
+        transitions: {
+          ...createTransitions(),
+          idle: {
+            DIAL: { target: 'toString' },
+          },
+        },
+      },
+      'fsm: transition target "toString" must exist in states',
+    ],
+    [
+      'state maps that are not objects',
+      {
+        ...createConfig(),
+        states: undefined,
+      },
+      'fsm: states must be an object',
+    ],
+    [
+      'state definitions that are not objects',
+      {
+        ...createConfig(),
+        states: {
+          ...createStates(),
+          idle: null,
+        },
+      },
+      'fsm: state definition "idle" must be an object',
+    ],
+    [
+      'state definitions with non-function onEnter',
+      {
+        ...createConfig(),
+        states: {
+          ...createStates(),
+          idle: { onEnter: true },
+        },
+      },
+      'fsm: state definition "idle" onEnter must be a function',
+    ],
+    [
+      'state definitions with non-function onLeave',
+      {
+        ...createConfig(),
+        states: {
+          ...createStates(),
+          idle: { onLeave: 42 },
+        },
+      },
+      'fsm: state definition "idle" onLeave must be a function',
+    ],
   ];
 
   it.each(invalidConfigs)('rejects %s', (_caseName, config, message) => {

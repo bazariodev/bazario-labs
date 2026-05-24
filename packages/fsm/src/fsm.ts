@@ -1,6 +1,8 @@
 import { hasOwn, NOOP_LOGGER, WILDCARD_STATE } from './internal/predicates.js';
 import {
+  type NormalizedStateMap,
   type NormalizedTransitionMap,
+  normalizeStates,
   normalizeTransitions,
   validateConfig,
 } from './internal/validation.js';
@@ -11,7 +13,6 @@ import type {
   FsmSnapshot,
   FsmSubscriber,
   Logger,
-  StateDefinition,
   TransitionDefinition,
   Unsubscribe,
 } from './types.js';
@@ -22,7 +23,7 @@ export class Fsm<TState extends string, TEvent extends FsmEvent, TContext>
   readonly name: string;
 
   readonly #logger: Logger;
-  readonly #states: Record<TState, StateDefinition<TState, TEvent, TContext>>;
+  readonly #states: NormalizedStateMap<TState, TEvent, TContext>;
   readonly #transitions: NormalizedTransitionMap<TState, TEvent, TContext>;
   readonly #onTransitionStart?: FsmConfig<
     TState,
@@ -45,11 +46,14 @@ export class Fsm<TState extends string, TEvent extends FsmEvent, TContext>
     this.#onTransitionStart = config.onTransitionStart;
     this.#onTransitionBeforeCommit = config.onTransitionBeforeCommit;
 
+    const normalizedStates = normalizeStates<TState, TEvent, TContext>(
+      config.states,
+    );
     const normalizedTransitions = normalizeTransitions(config.transitions);
 
-    validateConfig(config, normalizedTransitions);
+    validateConfig(config, normalizedStates, normalizedTransitions);
 
-    this.#states = config.states;
+    this.#states = normalizedStates;
     this.#transitions = normalizedTransitions;
     this.#snapshotRef = this.#freezeSnapshot({
       value: config.initial,
