@@ -1,0 +1,59 @@
+{
+  "name": "@bazariodev/fsm-effects",
+  "version": "0.0.0",
+  "description": "Effects runner for @bazariodev/fsm — state-entry effects with cancellation, cleanup, and re-entrant send support for realtime communication workflows.",
+  "license": "MIT",
+  "author": "Bazario",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Bazariodev/bazario-labs.git",
+    "directory": "packages/fsm-effects"
+  },
+  "homepage": "https://github.com/Bazariodev/bazario-labs/tree/main/packages/fsm-effects#readme",
+  "bugs": {
+    "url": "https://github.com/Bazariodev/bazario-labs/issues"
+  },
+  "keywords": [
+    "fsm",
+    "finite-state-machine",
+    "state-machine",
+    "effects",
+    "typescript",
+    "realtime",
+    "telephony",
+    "sip",
+    "ucaas"
+  ],
+  "type": "module",
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "require": "./dist/index.cjs"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "sideEffects": false,
+  "scripts": {
+    "build": "tsup",
+    "test": "vitest run --passWithNoTests",
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit"
+  },
+  "peerDependencies": {
+    "@bazariodev/fsm": "workspace:^"
+  },
+  "devDependencies": {
+    "@bazariodev/fsm": "workspace:^"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}
