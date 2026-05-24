@@ -1,3 +1,4 @@
+export { FsmEffects } from './fsm-effects.js';
 export type {
   Effect,
   EffectApi,
