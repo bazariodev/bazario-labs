@@ -63,8 +63,7 @@ export class FsmEffects<
   }
 
   #onSnapshot(snapshot: FsmSnapshot<TState, TContext>): void {
-    if (this.#stopped) return;
-    if (snapshot.version <= this.#lastProcessedVersion) return;
+    if (this.#stopped || snapshot.version <= this.#lastProcessedVersion) return;
     this.#lastProcessedVersion = snapshot.version;
 
     if (snapshot.value === this.#currentEffectState) return;
@@ -82,21 +81,28 @@ export class FsmEffects<
   }
 
   #spawnEffectsFor(snapshot: FsmSnapshot<TState, TContext>): void {
-    const controller = this.#controller;
+    const { signal } = this.#controller;
+    const api: EffectApi<TEvent> = Object.freeze({
+      signal,
+      send: (event: TEvent) => {
+        if (!signal.aborted) this.#machine.send(event);
+      },
+    });
+
     const stateEffects = this.#effects[snapshot.value];
     const wildcardEffects = this.#effects[WILDCARD];
 
     if (stateEffects) {
       for (const effect of stateEffects) {
-        if (controller.signal.aborted) return;
-        this.#runEffect(effect, snapshot, controller);
+        if (signal.aborted) return;
+        this.#runEffect(effect, snapshot, api);
       }
     }
 
     if (wildcardEffects) {
       for (const effect of wildcardEffects) {
-        if (controller.signal.aborted) return;
-        this.#runEffect(effect, snapshot, controller);
+        if (signal.aborted) return;
+        this.#runEffect(effect, snapshot, api);
       }
     }
   }
@@ -104,16 +110,8 @@ export class FsmEffects<
   #runEffect(
     effect: Effect<TState, TEvent, TContext>,
     snapshot: FsmSnapshot<TState, TContext>,
-    controller: AbortController,
+    api: EffectApi<TEvent>,
   ): void {
-    const api: EffectApi<TEvent> = Object.freeze({
-      signal: controller.signal,
-      send: (event: TEvent) => {
-        if (controller.signal.aborted) return;
-        this.#machine.send(event);
-      },
-    });
-
     let result: ReturnType<Effect<TState, TEvent, TContext>>;
     try {
       result = effect(snapshot, api);
@@ -126,17 +124,17 @@ export class FsmEffects<
       return;
     }
 
-    if (result === undefined) return;
+    if (!result) return;
 
     if (typeof result === 'function') {
-      this.#registerCleanup(result, controller);
+      this.#registerCleanup(result, api.signal);
       return;
     }
 
     result.then(
       (cleanup) => {
         if (typeof cleanup === 'function') {
-          this.#registerCleanup(cleanup, controller);
+          this.#registerCleanup(cleanup, api.signal);
         }
       },
       (error) => {
@@ -145,7 +143,7 @@ export class FsmEffects<
           version: snapshot.version,
           error,
         };
-        if (controller.signal.aborted) {
+        if (api.signal.aborted) {
           this.#logger.debug('fsm-effects: effect rejected after abort', meta);
         } else {
           this.#logger.error('fsm-effects: effect rejected', meta);
@@ -154,17 +152,15 @@ export class FsmEffects<
     );
   }
 
-  #registerCleanup(cleanup: EffectCleanup, controller: AbortController): void {
-    if (controller.signal.aborted) {
+  #registerCleanup(cleanup: EffectCleanup, signal: AbortSignal): void {
+    if (signal.aborted) {
       this.#invokeCleanup(cleanup);
       return;
     }
 
-    controller.signal.addEventListener(
-      'abort',
-      () => this.#invokeCleanup(cleanup),
-      { once: true },
-    );
+    signal.addEventListener('abort', () => this.#invokeCleanup(cleanup), {
+      once: true,
+    });
   }
 
   #invokeCleanup(cleanup: EffectCleanup): void {
