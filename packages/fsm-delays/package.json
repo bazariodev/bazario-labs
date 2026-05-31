@@ -1,0 +1,64 @@
+{
+  "name": "@bazariodev/fsm-delays",
+  "version": "0.0.0",
+  "description": "Declarative delays and intervals for @bazariodev/fsm — timeouts, repeating timers, and context-derived backoff that cancel on state leave, built on @bazariodev/fsm-effects.",
+  "license": "MIT",
+  "author": "Bazario",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Bazariodev/bazario-labs.git",
+    "directory": "packages/fsm-delays"
+  },
+  "homepage": "https://github.com/Bazariodev/bazario-labs/tree/main/packages/fsm-delays#readme",
+  "bugs": {
+    "url": "https://github.com/Bazariodev/bazario-labs/issues"
+  },
+  "keywords": [
+    "fsm",
+    "finite-state-machine",
+    "state-machine",
+    "delays",
+    "timers",
+    "timeout",
+    "backoff",
+    "typescript",
+    "realtime",
+    "telephony",
+    "sip",
+    "ucaas"
+  ],
+  "type": "module",
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "require": "./dist/index.cjs"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "sideEffects": false,
+  "scripts": {
+    "build": "tsup",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit"
+  },
+  "peerDependencies": {
+    "@bazariodev/fsm": "workspace:^",
+    "@bazariodev/fsm-effects": "workspace:^"
+  },
+  "devDependencies": {
+    "@bazariodev/fsm": "workspace:^",
+    "@bazariodev/fsm-effects": "workspace:^"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}

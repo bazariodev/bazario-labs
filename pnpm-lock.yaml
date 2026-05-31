@@ -26,6 +26,15 @@ importers:
 
   packages/fsm: {}
 
+  packages/fsm-delays:
+    devDependencies:
+      '@bazariodev/fsm':
+        specifier: workspace:^
+        version: link:../fsm
+      '@bazariodev/fsm-effects':
+        specifier: workspace:^
+        version: link:../fsm-effects
+
   packages/fsm-effects:
     devDependencies:
       '@bazariodev/fsm':
