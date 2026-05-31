@@ -1,8 +1,8 @@
 # @bazariodev/fsm-effects
 
-Effects runner for [`@bazariodev/fsm`](../fsm). Runs declarative state-entry effects with `AbortSignal` cancellation, sync or async bodies, optional cleanup callbacks, and a guarded `send` for driving the machine from inside an effect.
+Effects runner for [`@bazariodev/fsm`](https://github.com/Bazariodev/bazario-labs/tree/main/packages/fsm). Runs declarative state-entry effects with `AbortSignal` cancellation, sync or async bodies, optional cleanup callbacks, and a guarded `send` for driving the machine from inside an effect.
 
-Full design rationale: [`.agent/ADR/Modules/Effects.md`](../../.agent/ADR/Modules/Effects.md).
+Full design rationale: [`Effects.md` ADR](https://github.com/Bazariodev/bazario-labs/blob/main/.agent/ADR/Modules/Effects.md).
 
 ## Install
 
