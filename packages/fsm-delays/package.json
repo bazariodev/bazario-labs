@@ -1,6 +1,6 @@
 {
   "name": "@bazariodev/fsm-delays",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "description": "Declarative delays and intervals for @bazariodev/fsm — timeouts, repeating timers, and context-derived backoff that cancel on state leave, built on @bazariodev/fsm-effects.",
   "license": "MIT",
   "author": "Bazario",
