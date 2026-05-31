@@ -29,8 +29,10 @@ export class FsmEffects<
   readonly #unsubscribe: Unsubscribe;
 
   #controller: AbortController;
-  #currentEffectState: TState;
+  #processedState: TState;
   #lastProcessedVersion: number;
+  #pending: FsmSnapshot<TState, TContext> | null = null;
+  #draining = false;
   #stopped = false;
 
   constructor(
@@ -42,7 +44,7 @@ export class FsmEffects<
     this.#logger = config.logger ?? NOOP_LOGGER;
 
     const snapshot = machine.snapshot;
-    this.#currentEffectState = snapshot.value;
+    this.#processedState = snapshot.value;
     this.#lastProcessedVersion = snapshot.version;
     this.#controller = new AbortController();
 
@@ -66,18 +68,33 @@ export class FsmEffects<
     if (this.#stopped || snapshot.version <= this.#lastProcessedVersion) return;
     this.#lastProcessedVersion = snapshot.version;
 
-    if (snapshot.value === this.#currentEffectState) return;
+    if (snapshot.value === this.#processedState) return;
+    this.#processedState = snapshot.value;
 
-    const oldController = this.#controller;
-    const newController = new AbortController();
-    this.#controller = newController;
-    this.#currentEffectState = snapshot.value;
+    // Re-entrancy: a nested send() only queues the target; the active drain loop
+    // owns all spawning. See README — "Re-entrancy: the drain loop".
+    this.#pending = snapshot;
+    if (this.#draining) return;
 
-    oldController.abort();
+    this.#draining = true;
+    try {
+      while (!this.#stopped && this.#pending) {
+        const next = this.#pending;
+        this.#pending = null;
 
-    if (this.#stopped || this.#controller !== newController) return;
+        const oldController = this.#controller;
+        this.#controller = new AbortController();
 
-    this.#spawnEffectsFor(snapshot);
+        oldController.abort();
+
+        if (this.#stopped) break;
+        if (this.#pending) continue;
+
+        this.#spawnEffectsFor(next);
+      }
+    } finally {
+      this.#draining = false;
+    }
   }
 
   #spawnEffectsFor(snapshot: FsmSnapshot<TState, TContext>): void {
@@ -94,14 +111,14 @@ export class FsmEffects<
 
     if (stateEffects) {
       for (const effect of stateEffects) {
-        if (signal.aborted) return;
+        if (signal.aborted || this.#pending) return;
         this.#runEffect(effect, snapshot, api);
       }
     }
 
     if (wildcardEffects) {
       for (const effect of wildcardEffects) {
-        if (signal.aborted) return;
+        if (signal.aborted || this.#pending) return;
         this.#runEffect(effect, snapshot, api);
       }
     }

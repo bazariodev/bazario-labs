@@ -147,6 +147,77 @@ describe('FsmEffects re-entrancy', () => {
     ]);
   });
 
+  it('runs every leaving-state cleanup before entered-state effects when an early cleanup sends to another state', () => {
+    const machine = createMachine('a');
+    const log: string[] = [];
+
+    new FsmEffects(machine, {
+      effects: {
+        a: [
+          () => () => {
+            log.push('a-cleanup-1');
+            machine.send({ type: 'GO_C' });
+          },
+          () => () => {
+            log.push('a-cleanup-2');
+          },
+        ],
+        b: () => {
+          log.push('b-enter');
+        },
+        c: () => {
+          log.push('c-enter');
+        },
+      },
+    });
+
+    machine.send({ type: 'GO_B' });
+
+    expect(machine.state).toBe('c');
+    // a-cleanup-2 must run before c-enter — the entered state's effects cannot
+    // interleave with the leaving state's cleanups. b is skipped (passed through).
+    expect(log).toEqual(['a-cleanup-1', 'a-cleanup-2', 'c-enter']);
+  });
+
+  it('spawns the final target when cleanup cascade leaves and returns to the provisional target', () => {
+    const machine = createMachine('a', {
+      transitions: {
+        a: { GO_B: { target: 'b' } },
+        b: { GO_C: { target: 'c' } },
+        c: { GO_B: { target: 'b' } },
+        d: {},
+        '*': {},
+      },
+    });
+    const log: string[] = [];
+
+    new FsmEffects(machine, {
+      effects: {
+        a: [
+          () => () => {
+            log.push('a-cleanup-1');
+            machine.send({ type: 'GO_C' });
+          },
+          () => () => {
+            log.push('a-cleanup-2');
+            machine.send({ type: 'GO_B' });
+          },
+        ],
+        b: () => {
+          log.push('b-enter');
+        },
+        c: () => {
+          log.push('c-enter');
+        },
+      },
+    });
+
+    machine.send({ type: 'GO_B' });
+
+    expect(machine.state).toBe('b');
+    expect(log).toEqual(['a-cleanup-1', 'a-cleanup-2', 'b-enter']);
+  });
+
   it('stops the spawn loop for the leaving state when a nested send aborts its controller mid-spawn', () => {
     const machine = createMachine('a');
     const log: string[] = [];

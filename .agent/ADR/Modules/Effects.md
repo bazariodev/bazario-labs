@@ -88,7 +88,7 @@ Rules:
 - the snapshot carries `value`, `previousValue`, `context`, and `version`; this is what makes the transition-effect workaround (`snapshot.previousValue === 'X' ? ... : ...`) viable inside a wildcard or state-entry effect
 - `api.signal` aborts when the state is left, when the machine transitions out via the runner, or when `stop()` is called on the runner
 - `api.send` no-ops silently when `signal.aborted` is `true`, so effects do not need to guard every call site
-- when `signal.aborted` is `false`, `api.send` delegates directly to `machine.send`. Errors raised by the machine (guards, reducers, lifecycle hooks — per the core's error policy in `Base/CoreFSM.md`) propagate synchronously to the effect's call site; the runner does not catch them. Effects that want to absorb these errors must wrap the call in their own `try`/`catch`.
+- when `signal.aborted` is `false`, `api.send` delegates directly to `machine.send`. Errors raised by the machine (guards, reducers, lifecycle hooks — per the core's error policy in `Base/CoreFSM.md`) propagate synchronously to the effect's call site. The runner adds no special handling for them: if the effect catches the error (wrapping its `api.send` in `try`/`catch`) it observes the original machine error verbatim; if the effect does **not** catch it, the throw escapes the effect body and is contained by the Error policy below exactly like any other synchronous throw from an effect — caught, logged as `fsm-effects: effect threw`, and not crashing the runner. The runner never auto-sends an error event either way.
 - a synchronous return value of `void` means "no cleanup needed"
 - a synchronous return of a function is treated as a cleanup callback and invoked when the signal aborts
 - a `Promise<void>` is awaited only for error reporting; the runner does not block on it
@@ -126,13 +126,13 @@ For an accepted transition `A → B` (where `A !== B`):
 
 1. machine commits, then begins its notification pass
 2. when the pass reaches the runner, the callback fires with the new snapshot
-3. the runner applies the version guard, aborts the previous controller, creates the new controller and commits bookkeeping, then spawns the new state's effects (full ordering in "For stale subscriber callbacks and re-entrant `api.send`" below)
+3. the runner applies the version guard, creates the new controller and commits bookkeeping, aborts the previous controller, then spawns the new state's effects (full ordering in "For stale subscriber callbacks and re-entrant `api.send`" below)
 4. the runner returns from the callback; the machine continues delivering the snapshot to the remaining subscribers
 
 For initial-state effects:
 
 - the runner constructor captures `machine.snapshot` once at construction time. The initial state is that snapshot's `value`; the runner does not read `config.initial` from the machine config (which it cannot access through `FsmCore`).
-- ordering inside the constructor is fixed: capture the snapshot, normalize the config (see "Config isolation" below), commit bookkeeping (`#currentEffectState = snapshot.value`, `#lastProcessedVersion = snapshot.version`), build the initial `AbortController`, **then subscribe to the machine**, **then** spawn the state-specific and `*` effects. The subscription must be in place before any effect runs so that a synchronous `api.send` from an initial effect is delivered back into the runner instead of being missed.
+- ordering inside the constructor is fixed: capture the snapshot, normalize the config (see "Config isolation" below), commit notification bookkeeping (`#processedState = snapshot.value`, `#lastProcessedVersion = snapshot.version`), build the initial `AbortController`, **then subscribe to the machine**, **then** spawn the state-specific and `*` effects. The subscription must be in place before any effect runs so that a synchronous `api.send` from an initial effect is delivered back into the runner instead of being missed.
 - the constructor returns only after effects have been scheduled (not necessarily resolved)
 
 For rejected transitions:
@@ -142,21 +142,26 @@ For rejected transitions:
 For self-transitions (`A → A`):
 
 - effects are **not** restarted, matching the existing rule that `onStateLeave` and `onStateEnter` do not fire on self-transitions
-- the runner detects self-transitions by comparing the incoming snapshot's `value` with its own tracked `#currentEffectState`; it does not rely on `snapshot.previousValue`
+- the runner detects self-transitions by comparing the incoming snapshot's `value` with its notification tracker (`#processedState`); it does not rely on `snapshot.previousValue`
 
 For stale subscriber callbacks and re-entrant `api.send`:
 
-The base core delivers subscriber callbacks against a snapshotted subscriber list (`Base/CoreFSM.md` §8). If any subscriber — or any effect calling `api.send` — triggers a nested commit, later callbacks in the original pass will receive an older snapshot than `machine.snapshot`. The runner handles this with a strict ordering rule that holds for both ordinary and nested invocations:
+The base core delivers subscriber callbacks against a snapshotted subscriber list (`Base/CoreFSM.md` §8). Any subscriber — or any effect or cleanup calling `api.send`/`machine.send` — can trigger a nested commit while the runner is still mid-work. The runner serializes all of it through a single **drain loop** so that effect spawning never interleaves with cleanup execution. The rule holds for both ordinary and nested invocations:
 
 1. on every callback, if `snapshot.version <= #lastProcessedVersion`, **skip and return** (this commit has already been processed by a nested invocation)
 2. otherwise, set `#lastProcessedVersion = snapshot.version`
-3. if `snapshot.value === #currentEffectState`, it is a self-transition — return without further work
-4. otherwise, in this order:
-   1. abort the previous controller
-   2. create the new controller and **commit bookkeeping** (`#currentEffectState = snapshot.value`) before invoking any effect, so a synchronous nested `send()` sees the correct state
-   3. spawn the state-specific effects in declaration order, then the `*` effects
-   4. **between each spawn**, if the new controller's `signal.aborted` is `true`, stop the spawn loop (a synchronous nested `send()` aborted this controller; the remaining effects belong to a state the machine has already moved past)
-   5. if a synchronous cleanup is returned from an effect whose controller is already aborted by the time the runner stores it, the runner invokes the cleanup immediately rather than holding a reference that will never fire
+3. if `snapshot.value === #processedState`, it is a self-transition — return without further work; otherwise update `#processedState = snapshot.value`
+4. otherwise, record the snapshot as the pending target (`#pending`). If a drain loop is already running (`#draining`), **return** — the active loop owns all controller and spawn work; the nested call has only handed it the newer target
+5. otherwise run the drain loop until there is no pending target (or the runner is stopped). Each turn takes the pending target as `next`, clears `#pending`, and:
+   1. creates the new controller (`#controller = newController`) before aborting anything. Notification sequencing is tracked separately in `#processedState`, so this provisional controller assignment is not used to decide whether later nested callbacks are self-transitions.
+   2. aborts the previous controller. This fires the leaving state's cleanups synchronously, in registration order. A cleanup that calls `send()` re-enters at step 4, sets `#pending`, and returns (because `#draining` is `true`) — so **every** leaving-state cleanup finishes before any further work, and none of them interleave with the entered state's effects
+   3. if `stop()` was called during the cleanups, break out of the loop
+   4. if the cleanups produced a new `#pending` target, the machine has moved past `next`; **skip spawning** it and let the loop process the newer target on its next turn
+   5. otherwise spawn the state-specific effects in declaration order, then the `*` effects
+   6. **between each spawn**, if the controller's `signal.aborted` is `true` (e.g. `stop()`) or an effect's `send()` queued a new `#pending` target, stop the spawn loop; the loop's next turn aborts this controller (running any cleanups the partial spawn registered) and advances to the newer target
+   7. if a synchronous cleanup is returned from an effect whose controller is already aborted by the time the runner stores it, the runner invokes the cleanup immediately rather than holding a reference that will never fire
+
+Intermediate states a synchronous cascade only passes through (step 5.4) do **not** get their effects spawned; only the state the machine comes to rest on does.
 
 ## Cancellation
 
