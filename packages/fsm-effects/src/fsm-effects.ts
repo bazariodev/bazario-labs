@@ -6,6 +6,7 @@ import type {
   Unsubscribe,
 } from '@bazariodev/fsm';
 
+import { MESSAGES } from './internal/messages.js';
 import {
   type NormalizedEffectsMap,
   normalizeEffects,
@@ -133,7 +134,7 @@ export class FsmEffects<
     try {
       result = effect(snapshot, api);
     } catch (error) {
-      this.#logger.error('fsm-effects: effect threw', {
+      this.#logger.error(MESSAGES.effectThrew, {
         state: snapshot.value,
         version: snapshot.version,
         error,
@@ -161,9 +162,9 @@ export class FsmEffects<
           error,
         };
         if (api.signal.aborted) {
-          this.#logger.debug('fsm-effects: effect rejected after abort', meta);
+          this.#logger.debug(MESSAGES.effectRejectedAfterAbort, meta);
         } else {
-          this.#logger.error('fsm-effects: effect rejected', meta);
+          this.#logger.error(MESSAGES.effectRejected, meta);
         }
       },
     );
@@ -184,7 +185,7 @@ export class FsmEffects<
     try {
       cleanup();
     } catch (error) {
-      this.#logger.error('fsm-effects: cleanup threw', { error });
+      this.#logger.error(MESSAGES.cleanupThrew, { error });
     }
   }
 }

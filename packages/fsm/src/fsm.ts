@@ -1,3 +1,4 @@
+import { MESSAGES } from './internal/messages.js';
 import { hasOwn, NOOP_LOGGER, WILDCARD_STATE } from './internal/predicates.js';
 import {
   type NormalizedStateMap,
@@ -64,7 +65,7 @@ export class Fsm<TState extends string, TEvent extends FsmEvent, TContext>
 
     this.#invokeInitialEnter();
 
-    this.#logger.debug('fsm: initialized', {
+    this.#logger.debug(MESSAGES.initialized, {
       name: this.name,
       initial: config.initial,
     });
@@ -84,14 +85,11 @@ export class Fsm<TState extends string, TEvent extends FsmEvent, TContext>
 
   send(event: TEvent): void {
     if (this.#isTransitionLocked) {
-      this.#throwRuntimeError(
-        'fsm: cannot call send() while a transition is in progress',
-        {
-          name: this.name,
-          state: this.state,
-          eventType: event.type,
-        },
-      );
+      this.#throwRuntimeError(MESSAGES.sendWhileLocked, {
+        name: this.name,
+        state: this.state,
+        eventType: event.type,
+      });
     }
 
     this.#isTransitionLocked = true;
@@ -108,7 +106,7 @@ export class Fsm<TState extends string, TEvent extends FsmEvent, TContext>
         this.#findAcceptingTransition(transitions, previousContext, event);
 
       if (!transition) {
-        this.#logger.debug('fsm: transition rejected', {
+        this.#logger.debug(MESSAGES.transitionRejected, {
           name: this.name,
           state: from,
           eventType: event.type,
@@ -122,7 +120,7 @@ export class Fsm<TState extends string, TEvent extends FsmEvent, TContext>
       this.#invokeHook(
         this.#onTransitionStart,
         { from, to, event, context: previousContext },
-        'fsm: transition start hook failed',
+        MESSAGES.transitionStartHookFailed,
         { name: this.name, from, to, eventType: event.type },
       );
 
@@ -130,7 +128,7 @@ export class Fsm<TState extends string, TEvent extends FsmEvent, TContext>
         this.#invokeHook(
           this.#states[from].onLeave,
           { from, to, event, context: previousContext },
-          'fsm: state leave hook failed',
+          MESSAGES.stateLeaveHookFailed,
           { name: this.name, from, to, eventType: event.type },
         );
       }
@@ -152,7 +150,7 @@ export class Fsm<TState extends string, TEvent extends FsmEvent, TContext>
         this.#invokeHook(
           this.#states[to].onEnter,
           { from, to, event, context: nextSnapshot.context },
-          'fsm: state enter hook failed',
+          MESSAGES.stateEnterHookFailed,
           { name: this.name, from, to, eventType: event.type },
         );
       }
@@ -166,7 +164,7 @@ export class Fsm<TState extends string, TEvent extends FsmEvent, TContext>
           previousContext,
           nextContext: nextSnapshot.context,
         },
-        'fsm: transition before commit hook failed',
+        MESSAGES.transitionBeforeCommitHookFailed,
         { name: this.name, from, to, eventType: event.type },
       );
 
@@ -218,7 +216,7 @@ export class Fsm<TState extends string, TEvent extends FsmEvent, TContext>
     try {
       return transition.reducer(context, event);
     } catch (error) {
-      this.#logAndRethrow(error, 'fsm: context reducer failed', {
+      this.#logAndRethrow(error, MESSAGES.contextReducerFailed, {
         name: this.name,
         state: this.state,
         eventType: event.type,
@@ -234,7 +232,7 @@ export class Fsm<TState extends string, TEvent extends FsmEvent, TContext>
       try {
         subscriber(snapshot);
       } catch (error) {
-        this.#logger.error('fsm: subscriber notification failed', {
+        this.#logger.error(MESSAGES.subscriberNotificationFailed, {
           name: this.name,
           state: snapshot.value,
           version: snapshot.version,
@@ -254,7 +252,7 @@ export class Fsm<TState extends string, TEvent extends FsmEvent, TContext>
         if (!transition.guard || transition.guard(context, event))
           return transition;
       } catch (error) {
-        this.#logAndRethrow(error, 'fsm: guard evaluation failed', {
+        this.#logAndRethrow(error, MESSAGES.guardEvaluationFailed, {
           name: this.name,
           state: this.state,
           eventType: event.type,
@@ -270,7 +268,7 @@ export class Fsm<TState extends string, TEvent extends FsmEvent, TContext>
     this.#invokeHook(
       this.#states[this.state].onEnter,
       { from: null, to: this.state, event: null, context: this.context },
-      'fsm: initial enter hook failed',
+      MESSAGES.initialEnterHookFailed,
       { name: this.name, state: this.state },
     );
   }

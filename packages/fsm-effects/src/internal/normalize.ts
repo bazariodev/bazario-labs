@@ -1,6 +1,7 @@
 import type { FsmEvent } from '@bazariodev/fsm';
 
 import type { Effect, EffectsConfig } from '../types.js';
+import { MESSAGES } from './messages.js';
 import { hasOwn } from './predicates.js';
 
 export type NormalizedEffectsMap<
@@ -23,7 +24,7 @@ export function normalizeEffects<
     effects === null ||
     Array.isArray(effects)
   ) {
-    throw new Error('fsm-effects: effects must be an object');
+    throw new Error(MESSAGES.effectsNotObject);
   }
 
   const normalized: Partial<
@@ -45,17 +46,13 @@ export function normalizeEffects<
     }
 
     if (!Array.isArray(entry)) {
-      throw new Error(
-        `fsm-effects: effects["${String(key)}"] must be a function or array of functions`,
-      );
+      throw new Error(MESSAGES.entryNotFunctionOrArray(String(key)));
     }
 
     const items = entry.slice();
     for (let i = 0; i < items.length; i++) {
       if (typeof items[i] !== 'function') {
-        throw new Error(
-          `fsm-effects: effects["${String(key)}"][${i}] must be a function`,
-        );
+        throw new Error(MESSAGES.arrayEntryNotFunction(String(key), i));
       }
     }
     normalized[key] = Object.freeze(items);

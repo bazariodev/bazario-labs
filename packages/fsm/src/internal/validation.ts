@@ -5,6 +5,7 @@ import type {
   TransitionDefinition,
   TransitionMap,
 } from '../types.js';
+import { MESSAGES } from './messages.js';
 import { hasOwn, isRecord, WILDCARD_STATE } from './predicates.js';
 
 export type TransitionSource<TState extends string> =
@@ -49,17 +50,15 @@ function normalizeTransitionDefinition<
   const path = `${source}.${eventType}[${index}]`;
 
   if (!isRecord(definition)) {
-    throw new Error(`fsm: transition definition "${path}" must be an object`);
+    throw new Error(MESSAGES.transitionNotObject(path));
   }
 
   if (!hasOwn(definition, 'target')) {
-    throw new Error(`fsm: transition definition "${path}" must include target`);
+    throw new Error(MESSAGES.transitionMissingTarget(path));
   }
 
   if (typeof definition.target !== 'string') {
-    throw new Error(
-      `fsm: transition definition "${path}" target must be a string`,
-    );
+    throw new Error(MESSAGES.transitionTargetNotString(path));
   }
 
   if (
@@ -67,9 +66,7 @@ function normalizeTransitionDefinition<
     definition.guard !== undefined &&
     typeof definition.guard !== 'function'
   ) {
-    throw new Error(
-      `fsm: transition definition "${path}" guard must be a function`,
-    );
+    throw new Error(MESSAGES.transitionGuardNotFunction(path));
   }
 
   if (
@@ -77,9 +74,7 @@ function normalizeTransitionDefinition<
     definition.reducer !== undefined &&
     typeof definition.reducer !== 'function'
   ) {
-    throw new Error(
-      `fsm: transition definition "${path}" reducer must be a function`,
-    );
+    throw new Error(MESSAGES.transitionReducerNotFunction(path));
   }
 
   return Object.freeze({
@@ -94,7 +89,7 @@ export function normalizeStates<
   TEvent extends FsmEvent,
   TContext,
 >(states: unknown): NormalizedStateMap<TState, TEvent, TContext> {
-  if (!isRecord(states)) throw new Error('fsm: states must be an object');
+  if (!isRecord(states)) throw new Error(MESSAGES.statesNotObject);
 
   const normalized = {} as Record<
     TState,
@@ -106,21 +101,17 @@ export function normalizeStates<
 
     const definition = states[key];
     if (!isRecord(definition)) {
-      throw new Error(`fsm: state definition "${key}" must be an object`);
+      throw new Error(MESSAGES.stateNotObject(key));
     }
 
     const { onEnter, onLeave } = definition;
 
     if (onEnter !== undefined && typeof onEnter !== 'function') {
-      throw new Error(
-        `fsm: state definition "${key}" onEnter must be a function`,
-      );
+      throw new Error(MESSAGES.stateOnEnterNotFunction(key));
     }
 
     if (onLeave !== undefined && typeof onLeave !== 'function') {
-      throw new Error(
-        `fsm: state definition "${key}" onLeave must be a function`,
-      );
+      throw new Error(MESSAGES.stateOnLeaveNotFunction(key));
     }
 
     normalized[key as TState] = Object.freeze({
@@ -139,8 +130,7 @@ export function normalizeTransitions<
 >(
   transitions: TransitionMap<TState, TEvent, TContext>,
 ): NormalizedTransitionMap<TState, TEvent, TContext> {
-  if (!isRecord(transitions))
-    throw new Error('fsm: transitions must be an object');
+  if (!isRecord(transitions)) throw new Error(MESSAGES.transitionsNotObject);
 
   const normalized: NormalizedTransitionMap<TState, TEvent, TContext> = {};
 
@@ -149,9 +139,7 @@ export function normalizeTransitions<
 
     const eventMap = transitions[source];
     if (!isRecord(eventMap)) {
-      throw new Error(
-        `fsm: transition source "${source}" must define an event map`,
-      );
+      throw new Error(MESSAGES.transitionSourceNoEventMap(source));
     }
 
     const bucket: TransitionBucket<TState, TEvent, TContext> = {};
@@ -163,9 +151,7 @@ export function normalizeTransitions<
       const definitions = Array.isArray(entry) ? [...entry] : [entry];
 
       if (definitions.length === 0) {
-        throw new Error(
-          `fsm: transition entry "${source}.${eventType}" must include at least one definition`,
-        );
+        throw new Error(MESSAGES.transitionEntryEmpty(source, eventType));
       }
 
       bucket[eventType as TEvent['type']] = definitions.map(
@@ -194,16 +180,14 @@ export function validateConfig<
   states: NormalizedStateMap<TState, TEvent, TContext>,
   transitions: NormalizedTransitionMap<TState, TEvent, TContext>,
 ): void {
-  if (!config.name.trim()) throw new Error('fsm: name must not be empty');
+  if (!config.name.trim()) throw new Error(MESSAGES.nameEmpty);
 
   if (hasOwn(states, WILDCARD_STATE)) {
-    throw new Error('fsm: "*" is reserved and cannot be used as a state name');
+    throw new Error(MESSAGES.wildcardReservedState);
   }
 
   if (!hasOwn(states, config.initial)) {
-    throw new Error(
-      `fsm: initial state "${config.initial}" must exist in states`,
-    );
+    throw new Error(MESSAGES.initialStateMissing(config.initial));
   }
 
   for (const source in transitions) {
@@ -213,9 +197,7 @@ export function validateConfig<
     if (eventMap === undefined) continue;
 
     if (source !== WILDCARD_STATE && !hasOwn(states, source)) {
-      throw new Error(
-        `fsm: transition source state "${source}" must exist in states`,
-      );
+      throw new Error(MESSAGES.transitionSourceMissing(source));
     }
 
     for (const eventType in eventMap) {
@@ -226,13 +208,11 @@ export function validateConfig<
 
       for (const definition of definitions) {
         if (definition.target === WILDCARD_STATE) {
-          throw new Error('fsm: "*" cannot be used as a transition target');
+          throw new Error(MESSAGES.wildcardTarget);
         }
 
         if (!hasOwn(states, definition.target)) {
-          throw new Error(
-            `fsm: transition target "${definition.target}" must exist in states`,
-          );
+          throw new Error(MESSAGES.transitionTargetMissing(definition.target));
         }
       }
     }
