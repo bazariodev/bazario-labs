@@ -9,6 +9,7 @@ TypeScript SDKs and tools for the UCaaS domain — realtime, SIP, chat, and tele
 | [`@bazariodev/fsm`](./packages/fsm) | Lightweight, configurable TypeScript finite state machine for frontend runtimes, realtime clients, and telephony workflows. |
 | [`@bazariodev/fsm-effects`](./packages/fsm-effects) | State-entry effects runner for `@bazariodev/fsm`: `AbortSignal` cancellation, cleanup, and a re-entrancy-safe guarded `send`. |
 | [`@bazariodev/fsm-delays`](./packages/fsm-delays) | Declarative `after` timeouts and `every` intervals (with context-derived backoff) that arm on entry and cancel on leave, built on `@bazariodev/fsm-effects`. |
+| [`@bazariodev/fsm-hierarchy`](./packages/fsm-hierarchy) | Hierarchical composition for `@bazariodev/fsm`: one child region per state, bubbling event routing, routed node handles, and composed snapshots. |
 
 ## Getting started
 

@@ -1,0 +1,60 @@
+{
+  "name": "@bazariodev/fsm-hierarchy",
+  "version": "0.1.0",
+  "description": "Hierarchical composition layer for @bazariodev/fsm with post-commit child reconciliation and bubbling event routing.",
+  "license": "MIT",
+  "author": "Bazario",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Bazariodev/bazario-labs.git",
+    "directory": "packages/fsm-hierarchy"
+  },
+  "homepage": "https://github.com/Bazariodev/bazario-labs/tree/main/packages/fsm-hierarchy#readme",
+  "bugs": {
+    "url": "https://github.com/Bazariodev/bazario-labs/issues"
+  },
+  "keywords": [
+    "fsm",
+    "finite-state-machine",
+    "state-machine",
+    "hierarchy",
+    "typescript",
+    "realtime",
+    "telephony",
+    "sip",
+    "ucaas"
+  ],
+  "type": "module",
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "require": "./dist/index.cjs"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "sideEffects": false,
+  "scripts": {
+    "build": "tsup",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit"
+  },
+  "peerDependencies": {
+    "@bazariodev/fsm": "workspace:^"
+  },
+  "devDependencies": {
+    "@bazariodev/fsm": "workspace:^",
+    "@bazariodev/fsm-effects": "workspace:^"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}

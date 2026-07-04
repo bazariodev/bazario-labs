@@ -41,6 +41,15 @@ importers:
         specifier: workspace:^
         version: link:../fsm
 
+  packages/fsm-hierarchy:
+    devDependencies:
+      '@bazariodev/fsm':
+        specifier: workspace:^
+        version: link:../fsm
+      '@bazariodev/fsm-effects':
+        specifier: workspace:^
+        version: link:../fsm-effects
+
 packages:
 
   '@babel/runtime@7.29.2':
