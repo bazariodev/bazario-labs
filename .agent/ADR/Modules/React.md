@@ -22,7 +22,7 @@ We will build `@bazariodev/fsm-react` as a thin binding layer over the public `s
 ```ts
 type FsmSubscribable<TSnapshot> = Readonly<{
   snapshot: TSnapshot;
-  subscribe: (listener: (snapshot: TSnapshot) => void) => Unsubscribe;
+  subscribe: (listener: () => void) => Unsubscribe;
 }>;
 ```
 
@@ -35,7 +35,7 @@ v1 ships three hooks: `useFsmSnapshot` (subscribe), `useFsmSelector` (derived sl
 These were open at drafting time and have been settled:
 
 1. **React floor: 18.** Peer range `^18.0.0 || ^19.0.0`. `useSyncExternalStore` is built in from 18, so the `use-sync-external-store` legacy shim is not a dependency. React 17 support is a non-goal (aligned with the ES2022 / modern-runtime stance).
-2. **Structural port over `FsmCore` coupling.** Hooks accept `FsmSubscribable<TSnapshot>`. `@bazariodev/fsm` remains a peer for shared types (`Unsubscribe`, `FsmSnapshot`) but is never imported at runtime — the package has zero runtime imports besides React.
+2. **Structural port over `FsmCore` coupling.** Hooks accept `FsmSubscribable<TSnapshot>`: a stable `snapshot` accessor plus `subscribe(listener)` where the listener is a zero-argument change signal. `@bazariodev/fsm` remains a peer for shared types (`Unsubscribe`, `FsmSnapshot`) but is never imported at runtime — the package has zero runtime imports besides React.
 3. **Selector support is implemented internally.** The with-selector algorithm — cache the last `(snapshot, selector, isEqual, selection)` entry; recompute when the snapshot reference **or** the `selector`/`isEqual` identity changes; preserve the previous selection reference when `isEqual` passes — is small enough that taking `use-sync-external-store/with-selector` as a dependency is not worth the coupling. Default equality is `Object.is`.
 4. **The owning hook ships in v1, with explicit lifecycle and a discard-safety requirement on `create`.** `useFsm(create, { attach, teardown })` owns instance creation and StrictMode-correct attachment. There is no auto-detection magic (no "call `.stop()` if present"); stopping runners is the consumer's explicit `teardown`/attach-cleanup, mirroring the `onNodeSpawned` cleanup idiom from the hierarchy module. Because StrictMode double-invokes state initializers, `create` may run twice with one result discarded un-torn-down — so `useFsm` requires constructor-run hooks (initial `onEnter`, construction-time `onNodeSpawned`) to stay registration-only and resource-free; resource acquisition belongs in `attach`. The re-creation-after-teardown behavior is specified as a normative algorithm in "Ownership lifecycle", not left to implementation choice.
 5. **SSR: render-only.** `getServerSnapshot` returns the same `source.snapshot`, so server rendering works for initial markup. Server/client initial-state consistency is the consumer's responsibility. Built outputs carry a `'use client'` banner so the package can be imported from RSC codebases without ceremony.

@@ -67,6 +67,11 @@ function useFsm<TMachine extends FsmSubscribable<unknown>>(
     teardown?: (machine: TMachine) => void;
   },
 ): Readonly<{ machine: TMachine; snapshot: SnapshotOf<TMachine> }>;
+
+type FsmSubscribable<TSnapshot> = {
+  snapshot: TSnapshot;
+  subscribe(listener: () => void): () => void;
+};
 ```
 
 `useFsmSnapshot` and `useFsmSelector` are built on React's `useSyncExternalStore`, so they are safe for concurrent rendering. Sources must return the same `snapshot` reference between commits. A source that allocates a fresh object on every `snapshot` read violates the port contract.

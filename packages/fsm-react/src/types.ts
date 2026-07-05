@@ -2,7 +2,7 @@ import type { Unsubscribe } from '@bazariodev/fsm';
 
 export type FsmSubscribable<TSnapshot> = Readonly<{
   snapshot: TSnapshot;
-  subscribe: (listener: (snapshot: TSnapshot) => void) => Unsubscribe;
+  subscribe: (listener: () => void) => Unsubscribe;
 }>;
 
 export type EqualityFn<T> = (a: T, b: T) => boolean;

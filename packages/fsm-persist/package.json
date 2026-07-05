@@ -1,0 +1,59 @@
+{
+  "name": "@bazariodev/fsm-persist",
+  "version": "0.0.0",
+  "description": "Persistence helpers for @bazariodev/fsm snapshots with write-through storage and rehydrate-by-construction restore.",
+  "license": "MIT",
+  "author": "Bazario",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Bazariodev/bazario-labs.git",
+    "directory": "packages/fsm-persist"
+  },
+  "homepage": "https://github.com/Bazariodev/bazario-labs/tree/main/packages/fsm-persist#readme",
+  "bugs": {
+    "url": "https://github.com/Bazariodev/bazario-labs/issues"
+  },
+  "keywords": [
+    "fsm",
+    "finite-state-machine",
+    "state-machine",
+    "persistence",
+    "typescript",
+    "realtime",
+    "telephony",
+    "ucaas"
+  ],
+  "type": "module",
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "require": "./dist/index.cjs"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "sideEffects": false,
+  "scripts": {
+    "build": "tsup",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit"
+  },
+  "peerDependencies": {
+    "@bazariodev/fsm": "workspace:^"
+  },
+  "devDependencies": {
+    "@bazariodev/fsm": "workspace:^",
+    "@bazariodev/fsm-hierarchy": "workspace:^"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}

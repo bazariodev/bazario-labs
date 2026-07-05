@@ -50,6 +50,15 @@ importers:
         specifier: workspace:^
         version: link:../fsm-effects
 
+  packages/fsm-persist:
+    devDependencies:
+      '@bazariodev/fsm':
+        specifier: workspace:^
+        version: link:../fsm
+      '@bazariodev/fsm-hierarchy':
+        specifier: workspace:^
+        version: link:../fsm-hierarchy
+
   packages/fsm-react:
     devDependencies:
       '@bazariodev/fsm':

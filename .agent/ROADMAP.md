@@ -37,7 +37,7 @@ Status legend: `shipped` / `adr` (written, not implemented) / `planned` / `backl
 | `fsm-delays` | declarative `after`/`every` timers | shipped | R1 freeze |
 | `fsm-hierarchy` | nested machines, event bubbling, composed snapshot | shipped | R1 |
 | `fsm-react` | React bindings (`useFsm`, selector subscriptions via `useSyncExternalStore`) | shipped | R1 |
-| `fsm-persist` | snapshot serialize + rehydrate-by-construction (page refresh survival) | planned | R1 stretch |
+| `fsm-persist` | snapshot serialize + rehydrate-by-construction (page refresh survival) | shipped | R1 stretch |
 | `fsm-inspect` | dev-time transition trace, timeline log, Mermaid diagram export | planned | R1 stretch |
 | `fsm-retry` | declarative retry/backoff policy (max attempts, jitter, give-up event) | planned | R2 |
 

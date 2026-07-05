@@ -112,9 +112,7 @@ const createHierarchy = (): FsmHierarchy<HierarchyEvent> =>
 
 class TestSource implements FsmSubscribable<Readonly<{ id: number }>> {
   readonly id: number;
-  readonly #subscribers = new Set<
-    (snapshot: Readonly<{ id: number }>) => void
-  >();
+  readonly #subscribers = new Set<() => void>();
 
   stopped = false;
   #snapshot: Readonly<{ id: number }>;
@@ -128,9 +126,7 @@ class TestSource implements FsmSubscribable<Readonly<{ id: number }>> {
     return this.#snapshot;
   }
 
-  subscribe(
-    listener: (snapshot: Readonly<{ id: number }>) => void,
-  ): () => void {
+  subscribe(listener: () => void): () => void {
     if (this.stopped) return () => undefined;
     this.#subscribers.add(listener);
     return () => {
