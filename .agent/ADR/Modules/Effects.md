@@ -1,7 +1,8 @@
 # ADR: FSM Effects Module
 
-- Status: Proposed
+- Status: Accepted
 - Date: 2026-05-24
+- Accepted: 2026-05-31
 
 ## Context
 
@@ -261,8 +262,8 @@ The module ships as a separate package `@bazariodev/fsm-effects` in the existing
 
 This ADR does not define:
 
-- a delays/timers DSL (would be a follow-up module that builds on this runner)
-- a hierarchical-states model (state-entry effects compose with sub-machines once that exists)
+- a delays/timers DSL (since shipped as `@bazariodev/fsm-delays`; see `Modules/Delays.md`)
+- a hierarchical-states model (now drafted in `Modules/Hierarchy.md`)
 - a persistence story (a separate module can snapshot machine state and rehydrate; in-flight effects are *not* persistable by design)
 
 ## Extensibility direction

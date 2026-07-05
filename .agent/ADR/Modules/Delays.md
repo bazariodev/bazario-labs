@@ -1,7 +1,8 @@
 # ADR: FSM Delays Module
 
-- Status: Proposed
+- Status: Accepted
 - Date: 2026-05-31
+- Accepted: 2026-05-31
 
 ## Context
 
@@ -160,7 +161,7 @@ Tradeoffs:
 
 - a second peer dependency (effects) for delay-only consumers
 - timers are real async work; tests need a fake/stub scheduler for determinism
-- if `every` ships (open decision 2), the surface grows beyond strict "delays"
+- `every` grows the surface beyond strict "delays" — accepted so heartbeats and registration refresh stay first-class
 
 ## Next steps
 

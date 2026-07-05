@@ -4,7 +4,9 @@
       "Bash(node_modules/.bin/biome rage *)",
       "Bash(node_modules/.bin/biome explain *)",
       "Bash(pnpm lint *)",
-      "Bash(pnpm build *)"
+      "Bash(pnpm build *)",
+      "Bash(node -e ' *)",
+      "Bash(pnpm -r test)"
     ]
   }
 }

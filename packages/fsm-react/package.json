@@ -1,0 +1,67 @@
+{
+  "name": "@bazariodev/fsm-react",
+  "version": "0.1.0",
+  "description": "React bindings for @bazariodev/fsm sources with useSyncExternalStore subscriptions and selector bail-outs.",
+  "license": "MIT",
+  "author": "Bazario",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Bazariodev/bazario-labs.git",
+    "directory": "packages/fsm-react"
+  },
+  "homepage": "https://github.com/Bazariodev/bazario-labs/tree/main/packages/fsm-react#readme",
+  "bugs": {
+    "url": "https://github.com/Bazariodev/bazario-labs/issues"
+  },
+  "keywords": [
+    "fsm",
+    "finite-state-machine",
+    "state-machine",
+    "react",
+    "hooks",
+    "typescript",
+    "realtime",
+    "telephony",
+    "ucaas"
+  ],
+  "type": "module",
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "require": "./dist/index.cjs"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "sideEffects": false,
+  "scripts": {
+    "build": "tsup",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit"
+  },
+  "peerDependencies": {
+    "@bazariodev/fsm": "workspace:^",
+    "react": "^18.0.0 || ^19.0.0"
+  },
+  "devDependencies": {
+    "@bazariodev/fsm": "workspace:^",
+    "@bazariodev/fsm-hierarchy": "workspace:^",
+    "@testing-library/react": "^16.3.0",
+    "@types/react": "^19.2.7",
+    "@types/react-dom": "^19.2.3",
+    "jsdom": "^27.3.0",
+    "react": "^19.2.3",
+    "react-dom": "^19.2.3"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}

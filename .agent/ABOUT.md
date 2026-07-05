@@ -2,12 +2,13 @@
 
 Bazario Labs is a pnpm workspace for TypeScript SDKs and developer tooling aimed at the UCaaS domain. The repository is positioned around realtime communications use cases such as SIP signaling, chat, telephony, and call-flow orchestration.
 
-This workspace currently contains four packages:
+This workspace currently contains five packages:
 
 - `@bazariodev/fsm`: a lightweight, configurable finite state machine library for frontend runtimes, realtime clients, and telephony workflows.
 - `@bazariodev/fsm-effects`: a state-entry effects runner around `@bazariodev/fsm` with `AbortSignal` cancellation, cleanup, and a re-entrancy-safe guarded `send`.
 - `@bazariodev/fsm-delays`: declarative `after` timeouts and `every` intervals (with context-derived backoff), built on `@bazariodev/fsm-effects`.
 - `@bazariodev/fsm-hierarchy`: hierarchical composition for `@bazariodev/fsm` with one child region per state, bubbling event routing, routed node handles, and composed snapshots.
+- `@bazariodev/fsm-react`: React bindings for FSM sources with `useSyncExternalStore`, selector subscriptions, and component-owned machine lifecycle helpers.
 
 ## Project Scope
 
@@ -44,6 +45,7 @@ The goal of the repository is to provide reusable SDK building blocks for commun
 - `packages/fsm-effects`: state-entry effects runner built on `@bazariodev/fsm`
 - `packages/fsm-delays`: declarative delays/intervals built on `@bazariodev/fsm-effects`
 - `packages/fsm-hierarchy`: nested machine composition built on `@bazariodev/fsm`
+- `packages/fsm-react`: React bindings built on the workspace `snapshot`/`subscribe` observation port
 - `packages/*/src`: source code and types; `packages/*/src/__tests__`: package tests
 - `.agent`: agent-facing project context and documentation
 
