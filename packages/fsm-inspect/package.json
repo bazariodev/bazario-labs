@@ -1,15 +1,15 @@
 {
-  "name": "@bazariodev/fsm-react",
+  "name": "@bazariodev/fsm-inspect",
   "version": "1.0.0",
-  "description": "React bindings for @bazariodev/fsm sources with useSyncExternalStore subscriptions and selector bail-outs.",
+  "description": "Dev-time inspection helpers for @bazariodev/fsm timelines and Mermaid diagrams.",
   "license": "MIT",
   "author": "Bazario",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/Bazariodev/bazario-labs.git",
-    "directory": "packages/fsm-react"
+    "directory": "packages/fsm-inspect"
   },
-  "homepage": "https://github.com/Bazariodev/bazario-labs/tree/main/packages/fsm-react#readme",
+  "homepage": "https://github.com/Bazariodev/bazario-labs/tree/main/packages/fsm-inspect#readme",
   "bugs": {
     "url": "https://github.com/Bazariodev/bazario-labs/issues"
   },
@@ -17,8 +17,9 @@
     "fsm",
     "finite-state-machine",
     "state-machine",
-    "react",
-    "hooks",
+    "inspection",
+    "debugging",
+    "mermaid",
     "typescript",
     "realtime",
     "telephony",
@@ -48,18 +49,11 @@
     "typecheck": "tsc --noEmit"
   },
   "peerDependencies": {
-    "@bazariodev/fsm": "workspace:^",
-    "react": "^18.0.0 || ^19.0.0"
+    "@bazariodev/fsm": "workspace:^"
   },
   "devDependencies": {
     "@bazariodev/fsm": "workspace:^",
-    "@bazariodev/fsm-hierarchy": "workspace:^",
-    "@testing-library/react": "^16.3.0",
-    "@types/react": "^19.2.7",
-    "@types/react-dom": "^19.2.3",
-    "jsdom": "^27.3.0",
-    "react": "^19.2.3",
-    "react-dom": "^19.2.3"
+    "@bazariodev/fsm-hierarchy": "workspace:^"
   },
   "publishConfig": {
     "access": "public"

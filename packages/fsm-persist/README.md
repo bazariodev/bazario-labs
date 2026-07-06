@@ -56,19 +56,16 @@ Hierarchy restore walks the stored active spine top-down. If the root state no l
 ## API
 
 ```ts
+import type { FsmSubscribable } from '@bazariodev/fsm';
+
 type PersistStorage = {
   getItem(key: string): string | null;
   setItem(key: string, value: string): void;
   removeItem(key: string): void;
 };
-
-type FsmSubscribable<TSnapshot> = {
-  snapshot: TSnapshot;
-  subscribe(listener: () => void): () => void;
-};
 ```
 
-`localStorage` and `sessionStorage` satisfy `PersistStorage` directly. The source port is structural; `Fsm`, `FsmHierarchy`, and hierarchy node handles satisfy it.
+`localStorage` and `sessionStorage` satisfy `PersistStorage` directly. The source port is structural and exported by `@bazariodev/fsm`; `Fsm`, `FsmHierarchy`, and hierarchy node handles satisfy it.
 
 Writers:
 

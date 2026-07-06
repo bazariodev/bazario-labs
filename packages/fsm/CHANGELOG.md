@@ -1,5 +1,11 @@
 # @bazariodev/fsm
 
+## 1.0.0
+
+### Major Changes
+
+- Promote the shared structural observation and config-shape types into core for the FSM family freeze.
+
 ## 0.1.0
 
 ### Minor Changes

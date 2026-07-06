@@ -20,22 +20,19 @@ All four shipped packages expose the same observation seam — a stable `snapsho
 We will build `@bazariodev/fsm-react` as a thin binding layer over the public `snapshot`/`subscribe` seams, implemented on React's `useSyncExternalStore`. The package binds to a **structural source port**, not to a concrete class:
 
 ```ts
-type FsmSubscribable<TSnapshot> = Readonly<{
-  snapshot: TSnapshot;
-  subscribe: (listener: () => void) => Unsubscribe;
-}>;
+import type { FsmSubscribable } from '@bazariodev/fsm';
 ```
 
 `Fsm`, `FsmHierarchy`, and hierarchy node handles all satisfy this shape today without modification, and every future domain module that follows the workspace observation idiom (`transport-ws`, `call`, …) binds for free. The port — not `FsmCore` — is the UI-binding contract.
 
-v1 ships three hooks: `useFsmSnapshot` (subscribe), `useFsmSelector` (derived slice with equality bail-out), and `useFsm` (component-owned machine with StrictMode-safe attach/teardown lifecycle). No core or sibling package changes.
+v1 ships three hooks: `useFsmSnapshot` (subscribe), `useFsmSelector` (derived slice with equality bail-out), and `useFsm` (component-owned machine with StrictMode-safe attach/teardown lifecycle). During the R1 freeze, the structural source port moved into core and this package re-exports it for compatibility.
 
 ## Resolved decisions
 
 These were open at drafting time and have been settled:
 
 1. **React floor: 18.** Peer range `^18.0.0 || ^19.0.0`. `useSyncExternalStore` is built in from 18, so the `use-sync-external-store` legacy shim is not a dependency. React 17 support is a non-goal (aligned with the ES2022 / modern-runtime stance).
-2. **Structural port over `FsmCore` coupling.** Hooks accept `FsmSubscribable<TSnapshot>`: a stable `snapshot` accessor plus `subscribe(listener)` where the listener is a zero-argument change signal. `@bazariodev/fsm` remains a peer for shared types (`Unsubscribe`, `FsmSnapshot`) but is never imported at runtime — the package has zero runtime imports besides React.
+2. **Structural port over `FsmCore` coupling.** Hooks accept `FsmSubscribable<TSnapshot>` from `@bazariodev/fsm`: a stable `snapshot` accessor plus `subscribe(listener)`. React passes a zero-argument change signal; sources may also deliver the committed snapshot to other consumers. `@bazariodev/fsm` is used for shared types only and is never imported at runtime — the package has zero runtime imports besides React.
 3. **Selector support is implemented internally.** The with-selector algorithm — cache the last `(snapshot, selector, isEqual, selection)` entry; recompute when the snapshot reference **or** the `selector`/`isEqual` identity changes; preserve the previous selection reference when `isEqual` passes — is small enough that taking `use-sync-external-store/with-selector` as a dependency is not worth the coupling. Default equality is `Object.is`.
 4. **The owning hook ships in v1, with explicit lifecycle and a discard-safety requirement on `create`.** `useFsm(create, { attach, teardown })` owns instance creation and StrictMode-correct attachment. There is no auto-detection magic (no "call `.stop()` if present"); stopping runners is the consumer's explicit `teardown`/attach-cleanup, mirroring the `onNodeSpawned` cleanup idiom from the hierarchy module. Because StrictMode double-invokes state initializers, `create` may run twice with one result discarded un-torn-down — so `useFsm` requires constructor-run hooks (initial `onEnter`, construction-time `onNodeSpawned`) to stay registration-only and resource-free; resource acquisition belongs in `attach`. The re-creation-after-teardown behavior is specified as a normative algorithm in "Ownership lifecycle", not left to implementation choice.
 5. **SSR: render-only.** `getServerSnapshot` returns the same `source.snapshot`, so server rendering works for initial markup. Server/client initial-state consistency is the consumer's responsibility. Built outputs carry a `'use client'` banner so the package can be imported from RSC codebases without ceremony.
@@ -45,7 +42,7 @@ These were open at drafting time and have been settled:
 
 ### In scope for v1
 
-- `FsmSubscribable<TSnapshot>` structural port type
+- `FsmSubscribable<TSnapshot>` re-exported from core
 - `useFsmSnapshot(source)` — tearing-safe reactive snapshot
 - `useFsmSelector(source, selector, isEqual?)` — derived slice, re-render only on selected change
 - `useFsm(create, options?)` — component-owned machine: lazy one-time creation, effect-scoped `attach` with cleanup, `teardown`, StrictMode-safe re-creation semantics
@@ -64,6 +61,8 @@ These were open at drafting time and have been settled:
 ## Hook contracts
 
 ```ts
+import type { FsmSubscribable } from '@bazariodev/fsm';
+
 type EqualityFn<T> = (a: T, b: T) => boolean;
 
 function useFsmSnapshot<TSnapshot>(
@@ -147,7 +146,7 @@ None at runtime. The port is a typed parameter; TypeScript enforces shape at the
 Module exports:
 
 - `useFsmSnapshot`, `useFsmSelector`, `useFsm` (functions)
-- `FsmSubscribable`, `EqualityFn`, `UseFsmOptions`, `SnapshotOf` (types)
+- `FsmSubscribable` re-exported from core, plus `EqualityFn`, `UseFsmOptions`, `SnapshotOf` (types)
 
 ## Packaging
 
@@ -191,7 +190,7 @@ Tradeoffs:
 ## Next steps
 
 1. Scaffold `packages/fsm-react/` (package.json with peers `react` + `@bazariodev/fsm`, tsconfig, tsup with `'use client'` banner, vitest with jsdom, README, LICENSE).
-2. Define types: `FsmSubscribable`, `EqualityFn`, `UseFsmOptions`, `SnapshotOf`.
+2. Define types: re-export core `FsmSubscribable`, plus `EqualityFn`, `UseFsmOptions`, `SnapshotOf`.
 3. Implement `useFsmSnapshot`, then the internal with-selector cache and `useFsmSelector`, then `useFsm` (lazy init + generation lifecycle).
 4. Tests: re-render on committed transition; no re-render on rejected event; selector bail-out preserves selection reference and skips re-render; selector recompute on snapshot change; **selector identity swap without any transition recomputes from the current snapshot (no stale cache)**; inline selector/isEqual identity churn does not resubscribe; source swap resubscribes and reads the new snapshot synchronously; `Fsm` and `FsmHierarchy` as sources work through wrapped `subscribe`/`getSnapshot` closures (prototype methods with private fields are never detached); hierarchy node handle as source; SSR `renderToString` renders the initial snapshot; StrictMode without `teardown` keeps the instance and re-runs `attach` (cleanup interleaved); StrictMode with `teardown`: the dead-generation setup skips `attach`, a fresh machine is created and only it gets attached (count `create`/`attach` invocations, assert `attach` never receives a stopped machine); StrictMode double-invoked initializer: discarded twin is observable only as an extra `create` call, retained instance is the one rendered and attached; unmount order is attach-cleanup then `teardown`; **a throwing attach cleanup still runs `teardown` and sets the dead flag (error propagates, and a subsequent StrictMode setup re-creates instead of reattaching)**; send from an `attach`-installed effect updates the rendered snapshot.
 5. First changeset for `@bazariodev/fsm-react` at `0.1.0`.

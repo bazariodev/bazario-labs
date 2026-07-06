@@ -1,6 +1,6 @@
 {
   "name": "@bazariodev/fsm-effects",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "description": "Effects runner for @bazariodev/fsm — state-entry effects with cancellation, cleanup, and re-entrant send support for realtime communication workflows.",
   "license": "MIT",
   "author": "Bazario",

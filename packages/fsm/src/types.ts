@@ -9,6 +9,11 @@ export type FsmSnapshot<TState extends string, TContext> = Readonly<{
   version: number;
 }>;
 
+export type FsmSubscribable<TSnapshot> = Readonly<{
+  snapshot: TSnapshot;
+  subscribe: (listener: (snapshot?: TSnapshot) => void) => Unsubscribe;
+}>;
+
 export type Guard<TContext, TEvent extends FsmEvent> = (
   context: Readonly<TContext>,
   event: TEvent,
@@ -134,6 +139,45 @@ export type FsmSubscriber<TState extends string, TContext> = (
 ) => void;
 
 export type Unsubscribe = () => void;
+
+export type HierarchyNodeSnapshotLike = Readonly<{
+  value: string;
+  context: unknown;
+  child: HierarchyNodeSnapshotLike | null;
+}>;
+
+export type HierarchySnapshotLike = Readonly<{
+  root: HierarchyNodeSnapshotLike;
+}>;
+
+export type HierarchyConfigLike = Readonly<{
+  name: string;
+  initial: string;
+  context: unknown;
+  states: Record<string, unknown>;
+  children?: Partial<Record<string, HierarchyConfigLike>>;
+}>;
+
+export type DiagramTransitionDefinition = Readonly<{
+  target: string;
+  guard?: unknown;
+}>;
+
+export type DiagramTransitionEntry =
+  | DiagramTransitionDefinition
+  | ReadonlyArray<DiagramTransitionDefinition>;
+
+export type FsmDiagramConfig = Readonly<{
+  name?: string;
+  initial: string;
+  states: Record<string, unknown>;
+  transitions: Readonly<
+    Record<string, Readonly<Partial<Record<string, unknown>>>>
+  >;
+}>;
+
+export type HierarchyDiagramConfig = FsmDiagramConfig &
+  Readonly<{ children?: Partial<Record<string, HierarchyDiagramConfig>> }>;
 
 export interface FsmCore<
   TState extends string,

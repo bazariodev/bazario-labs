@@ -1,14 +1,18 @@
-import type { FsmConfig, FsmEvent, FsmSnapshot, Logger } from '@bazariodev/fsm';
+import type {
+  FsmConfig,
+  FsmEvent,
+  FsmSnapshot,
+  FsmSubscribable,
+  HierarchyConfigLike,
+  HierarchyNodeSnapshotLike,
+  HierarchySnapshotLike,
+  Logger,
+} from '@bazariodev/fsm';
 
 export type PersistStorage = Readonly<{
   getItem: (key: string) => string | null;
   setItem: (key: string, value: string) => void;
   removeItem: (key: string) => void;
-}>;
-
-export type FsmSubscribable<TSnapshot> = Readonly<{
-  snapshot: TSnapshot;
-  subscribe: (listener: () => void) => () => void;
 }>;
 
 export type PersistedFsmState = Readonly<{
@@ -51,24 +55,6 @@ export type RestoreOptions = Readonly<{
   now?: () => number;
 }>;
 
-export type HierarchyNodeSnapshotLike = Readonly<{
-  value: string;
-  context: unknown;
-  child: HierarchyNodeSnapshotLike | null;
-}>;
-
-export type HierarchySnapshotLike = Readonly<{
-  root: HierarchyNodeSnapshotLike;
-}>;
-
-export type HierarchyConfigLike = Readonly<{
-  name: string;
-  initial: string;
-  context: unknown;
-  states: Record<string, unknown>;
-  children?: Partial<Record<string, HierarchyConfigLike>>;
-}>;
-
 export type RestoreFsmResult<
   TState extends string,
   TEvent extends FsmEvent,
@@ -86,4 +72,13 @@ export type RestoreHierarchyResult<TConfig extends HierarchyConfigLike> =
     recordLevels: number;
   }>;
 
-export type { FsmConfig, FsmEvent, FsmSnapshot, Logger };
+export type {
+  FsmConfig,
+  FsmEvent,
+  FsmSnapshot,
+  FsmSubscribable,
+  HierarchyConfigLike,
+  HierarchyNodeSnapshotLike,
+  HierarchySnapshotLike,
+  Logger,
+};

@@ -1,6 +1,6 @@
 {
   "name": "@bazariodev/fsm",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "description": "Lightweight, configurable TypeScript finite state machine for frontend runtimes, realtime clients, and telephony workflows.",
   "license": "MIT",
   "author": "Bazario",

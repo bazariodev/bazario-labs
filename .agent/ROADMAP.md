@@ -38,7 +38,7 @@ Status legend: `shipped` / `adr` (written, not implemented) / `planned` / `backl
 | `fsm-hierarchy` | nested machines, event bubbling, composed snapshot | shipped | R1 |
 | `fsm-react` | React bindings (`useFsm`, selector subscriptions via `useSyncExternalStore`) | shipped | R1 |
 | `fsm-persist` | snapshot serialize + rehydrate-by-construction (page refresh survival) | shipped | R1 stretch |
-| `fsm-inspect` | dev-time transition trace, timeline log, Mermaid diagram export | planned | R1 stretch |
+| `fsm-inspect` | dev-time transition trace, timeline log, Mermaid diagram export | adr | R1 stretch |
 | `fsm-retry` | declarative retry/backoff policy (max attempts, jitter, give-up event) | planned | R2 |
 
 ### Layer 1 — Connectivity and session
@@ -91,7 +91,7 @@ Packages version independently via Changesets, so a "release" here is a mileston
 
 - Goal: finish and freeze the FSM family.
 - Build: `fsm-react`; stretch: `fsm-persist`, `fsm-inspect`.
-- Chores: flip Effects/Delays ADR statuses, docs pass, promote `fsm` / `fsm-effects` / `fsm-delays` to `1.0.0`.
+- Chores: flip Effects/Delays ADR statuses, docs pass, promote the FSM family to `1.0.0`. Shared structural types (`FsmSubscribable`, hierarchy config/snapshot shapes, diagram config shapes) are promoted into `@bazariodev/fsm`; keep dependent package exports as compatibility aliases.
 - Exit criteria: a nested call-flow example (`connected.active` / `connected.onHold` / `connected.muted`) running in React, built only from published packages.
 
 ### R2 — Connectivity

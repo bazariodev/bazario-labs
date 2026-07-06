@@ -1,5 +1,12 @@
 # @bazariodev/fsm-effects
 
+## 1.0.0
+
+### Patch Changes
+
+- Updated dependencies
+  - @bazariodev/fsm@1.0.0
+
 ## 0.1.0
 
 ### Minor Changes

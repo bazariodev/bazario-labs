@@ -50,6 +50,8 @@ function CallState() {
 ## API
 
 ```ts
+import type { FsmSubscribable } from '@bazariodev/fsm';
+
 function useFsmSnapshot<TSnapshot>(
   source: FsmSubscribable<TSnapshot>,
 ): TSnapshot;
@@ -67,12 +69,9 @@ function useFsm<TMachine extends FsmSubscribable<unknown>>(
     teardown?: (machine: TMachine) => void;
   },
 ): Readonly<{ machine: TMachine; snapshot: SnapshotOf<TMachine> }>;
-
-type FsmSubscribable<TSnapshot> = {
-  snapshot: TSnapshot;
-  subscribe(listener: () => void): () => void;
-};
 ```
+
+`FsmSubscribable` is the shared core shape: a stable `snapshot` accessor plus `subscribe(listener)` where the listener may receive the committed snapshot.
 
 `useFsmSnapshot` and `useFsmSelector` are built on React's `useSyncExternalStore`, so they are safe for concurrent rendering. Sources must return the same `snapshot` reference between commits. A source that allocates a fresh object on every `snapshot` read violates the port contract.
 

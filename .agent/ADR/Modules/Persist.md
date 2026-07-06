@@ -15,7 +15,7 @@ Everything needed already exists as public seams: the core's stable `snapshot` a
 
 ## Decision
 
-We will build `@bazariodev/fsm-persist` as two thin layers over public seams, with **no core changes**. Because `fsm-persist` is the second consumer of the observation port, `fsm-react`'s exported `FsmSubscribable` type is aligned to the same zero-argument listener shape while both packages are still pre-1.0; existing `Fsm`, `FsmHierarchy`, and node-handle sources continue to satisfy the shape structurally.
+We will build `@bazariodev/fsm-persist` as two thin layers over public seams. During the R1 freeze, the shared observation port moved into core as `FsmSubscribable`; existing `Fsm`, `FsmHierarchy`, and node-handle sources continue to satisfy the shape structurally.
 
 - a **write side**: a persistor that subscribes to any snapshot source through the structural port and writes a versioned record to an injected storage on every committed transition
 - a **read side**: pure functions that load a record and **rehydrate by construction** — returning a rewritten config (`initial` and `context` overridden from the record) that the consumer passes to the normal `Fsm` / `FsmHierarchy` constructor
@@ -30,7 +30,7 @@ These were open at drafting time and have been settled:
 2. **Rehydrate-by-construction via pure config rewrite.** No `Fsm.restore()` API, no core changes: restore returns a new config object with `initial`/`context` replaced. Runtime bookkeeping is per-process — a restored machine starts at `version 0`, `previousValue: null` (and a restored hierarchy at `treeVersion 0`); consumers must not treat these as continuations.
 3. **Untrusted-storage doctrine: the read side never throws.** Storage content — and the storage itself — is untrusted input. A throwing `getItem` (storage denied), corrupt, wrong-format, wrong-name, wrong-kind, stale (`maxAgeMs`), or unknown-state data all degrade to a fresh start: storage failures log at `error`, present-but-invalid records at `warn`, and a simply absent record (first launch, the normal case) at `debug` only. A refresh-survival feature that can brick startup on bad data is worse than no feature. Restore granularity is entry-point-specific: flat restore is all-or-nothing, and a hierarchy spine whose **root** level is invalid restores nothing — but a mismatch **deeper** in the spine truncates rather than discards: the valid prefix restores and levels below start fresh (see Rules).
 4. **Sync storage port, localStorage-shaped.** `PersistStorage` is `{ getItem, setItem, removeItem }` over strings, so `localStorage`/`sessionStorage` pass directly and tests inject a memory stub. Write-through on every commit needs no unload flushing. Async storage (IndexedDB) is a deferred adapter concern.
-5. **Structural typing throughout; no new peers.** The source port is the same `FsmSubscribable<TSnapshot>` name and zero-argument listener shape used by `fsm-react`: `snapshot` + `subscribe(listener: () => void)`. The hierarchy snapshot/config shapes are declared structurally in this package, mirroring the `fsm-react` precedent. `@bazariodev/fsm` stays a types-only peer (`FsmSnapshot`, `FsmConfig`, `Logger`); `fsm-hierarchy` is **not** a peer. Promoting the shared port type into the core is a candidate chore for the 1.0 freeze, tracked in the roadmap, not decided here.
+5. **Structural typing throughout; no new runtime peer.** The source port is the core `FsmSubscribable<TSnapshot>` shape: `snapshot` + `subscribe(listener)`. Persist ignores delivered listener payloads and reads `source.snapshot` so storage stays last-write-wins. The hierarchy snapshot/config-like shapes are also exported by core during the R1 freeze. `@bazariodev/fsm` stays a types-only peer (`FsmSnapshot`, `FsmConfig`, `Logger`, shared structural shapes); `fsm-hierarchy` is **not** a peer.
 6. **Write-through with a `filter` valve; no debouncing in v1.** Every committed transition serializes and writes. High-frequency flows (heartbeat ticks bumping context) are expected to throttle via `filter: (snapshot) => boolean` or to project a reduced persisted shape through a custom `toState` on the `FsmPersist` class — the README states this expectation explicitly. A time-based debounce would add timer machinery and a flush-on-unload problem for marginal benefit.
 7. **Versioned envelope, no migration DSL.** Records carry `format: 1`, the machine `name`, and an `at` timestamp. Format or name mismatch → fresh start. Consumer-side data evolution goes through the `serialize`/`deserialize` overrides; a migration framework is backlog until a real second format exists.
 
@@ -58,20 +58,16 @@ These were open at drafting time and have been settled:
 ## Contracts
 
 ```ts
+import type { FsmSubscribable } from '@bazariodev/fsm';
+
 type PersistStorage = Readonly<{
   getItem: (key: string) => string | null;
   setItem: (key: string, value: string) => void;
   removeItem: (key: string) => void;
 }>;
 
-// Structural source port. The listener is deliberately zero-argument: a
-// notification is only a change signal and the writer reads source.snapshot.
-// Existing sources (Fsm, FsmHierarchy, node handles) satisfy this shape as-is,
-// because a listener taking fewer parameters is always assignable to theirs.
-type FsmSubscribable<TSnapshot> = Readonly<{
-  snapshot: TSnapshot;
-  subscribe: (listener: () => void) => () => void;
-}>;
+// Structural source port from core. The writer treats notifications as change
+// signals and reads source.snapshot, even when a source delivers a payload.
 
 type PersistedFsmState = Readonly<{ kind: 'fsm'; value: string; context: unknown }>;
 type PersistedHierarchyState = Readonly<{
@@ -145,7 +141,7 @@ function restoreHierarchyConfig(
 }>;
 ```
 
-`HierarchySnapshotLike` / `HierarchyConfigLike` are structural declarations of the shapes `fsm-hierarchy` exports (`root` chain of `{ value, context, child }`; config with `name`/`initial`/`context`/`states`/`children`), so the real types satisfy them without an import.
+`HierarchySnapshotLike` / `HierarchyConfigLike` are core structural declarations of the shapes `fsm-hierarchy` exports (`root` chain of `{ value, context, child }`; config with `name`/`initial`/`context`/`states`/`children`), so the real types satisfy them without an import from `fsm-hierarchy`.
 
 ## Rules
 
