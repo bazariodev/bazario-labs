@@ -1,0 +1,674 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="color-scheme" content="light dark">
+    <title>Realtime client hierarchy | Bazario Labs</title>
+    <style>
+      :root {
+        color-scheme: light dark;
+        --page: light-dark(#f6f7f8, #111417);
+        --surface: light-dark(#ffffff, #191d21);
+        --surface-soft: light-dark(#eef1f4, #20262b);
+        --text: light-dark(#17202a, #edf2f5);
+        --muted: light-dark(#586574, #aab4bc);
+        --line: light-dark(#cbd3db, #3c464f);
+        --realtime: light-dark(#0b65c2, #75b9ff);
+        --realtime-soft: light-dark(#eaf4ff, #172c40);
+        --transport: light-dark(#9a5b00, #ffc166);
+        --transport-soft: light-dark(#fff5df, #352816);
+        --max-content: 72rem;
+        font-family:
+          Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      html {
+        background: var(--page);
+      }
+
+      body {
+        margin: 0;
+        color: var(--text);
+        background: var(--page);
+        font-size: 1rem;
+        line-height: 1.6;
+      }
+
+      a {
+        color: var(--realtime);
+        text-underline-offset: 0.2em;
+      }
+
+      a:hover {
+        text-decoration-thickness: 0.14em;
+      }
+
+      code {
+        padding: 0.08em 0.3em;
+        border-radius: 0.25rem;
+        background: var(--surface-soft);
+        font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+        font-size: 0.92em;
+        overflow-wrap: anywhere;
+      }
+
+      pre {
+        max-inline-size: 100%;
+        margin: 0;
+        padding: 1rem;
+        overflow: auto;
+        border: 1px solid var(--line);
+        border-radius: 0.6rem;
+        background: var(--surface);
+      }
+
+      pre code {
+        padding: 0;
+        background: transparent;
+        white-space: pre;
+      }
+
+      header,
+      main,
+      footer {
+        inline-size: min(100% - 2rem, var(--max-content));
+        margin-inline: auto;
+      }
+
+      header {
+        padding-block: clamp(2.5rem, 7vw, 5.5rem) 2rem;
+      }
+
+      .eyebrow {
+        margin: 0 0 0.5rem;
+        color: var(--realtime);
+        font-size: 0.82rem;
+        font-weight: 700;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+      }
+
+      h1,
+      h2,
+      h3 {
+        margin-block: 0;
+        line-height: 1.2;
+        text-wrap: balance;
+      }
+
+      h1 {
+        max-inline-size: 18ch;
+        font-size: clamp(2.1rem, 7vw, 4.5rem);
+        letter-spacing: -0.045em;
+      }
+
+      h2 {
+        margin-block-end: 1rem;
+        font-size: clamp(1.45rem, 3vw, 2rem);
+        letter-spacing: -0.025em;
+      }
+
+      h3 {
+        font-size: 1rem;
+      }
+
+      p {
+        margin-block: 0;
+      }
+
+      .lead {
+        max-inline-size: 66ch;
+        margin-block-start: 1rem;
+        color: var(--muted);
+        font-size: clamp(1.05rem, 2vw, 1.2rem);
+      }
+
+      nav ul {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.5rem 1.25rem;
+        margin: 1.5rem 0 0;
+        padding: 0;
+        list-style: none;
+      }
+
+      main {
+        display: grid;
+        gap: clamp(3rem, 7vw, 5rem);
+        padding-block: 1.5rem 5rem;
+      }
+
+      .principle {
+        padding: 1.1rem 1.25rem;
+        border-inline-start: 0.3rem solid var(--realtime);
+        background: var(--realtime-soft);
+        font-size: 1.08rem;
+      }
+
+      .architecture-layout {
+        display: grid;
+        grid-template-columns: minmax(0, 1.7fr) minmax(15rem, 0.8fr);
+        gap: clamp(1.5rem, 4vw, 3rem);
+        align-items: start;
+      }
+
+      figure {
+        min-inline-size: 0;
+        margin: 0;
+      }
+
+      .stack {
+        display: grid;
+        gap: 0;
+        margin: 0;
+        padding: 0;
+        list-style: none;
+      }
+
+      .node {
+        min-inline-size: 0;
+        padding: 0.9rem 1rem;
+        border: 1px solid var(--line);
+        border-radius: 0.65rem;
+        background: var(--surface);
+      }
+
+      .node strong,
+      .node span {
+        display: block;
+      }
+
+      .node span {
+        margin-block-start: 0.2rem;
+        color: var(--muted);
+      }
+
+      .node-realtime {
+        border-color: var(--realtime);
+        background: var(--realtime-soft);
+      }
+
+      .node-transport {
+        border-color: var(--transport);
+        background: var(--transport-soft);
+      }
+
+      .edge {
+        display: grid;
+        place-items: center;
+        min-block-size: 3.4rem;
+        color: var(--muted);
+        text-align: center;
+      }
+
+      .edge::before {
+        content: "↓";
+        display: block;
+        color: var(--text);
+        font-size: 1.3rem;
+        line-height: 1;
+      }
+
+      figcaption {
+        margin-block-start: 1rem;
+        color: var(--muted);
+      }
+
+      .supporting-seams {
+        display: grid;
+        gap: 1rem;
+        margin: 0;
+      }
+
+      .supporting-seams div {
+        padding-inline-start: 0.9rem;
+        border-inline-start: 2px dashed var(--line);
+      }
+
+      .supporting-seams dt {
+        font-weight: 700;
+      }
+
+      .supporting-seams dd {
+        margin: 0.2rem 0 0;
+        color: var(--muted);
+      }
+
+      .section-intro {
+        max-inline-size: 70ch;
+        margin-block: -0.45rem 1.25rem;
+        color: var(--muted);
+      }
+
+      .table-wrap {
+        max-inline-size: 100%;
+        overflow-x: auto;
+        border-block: 1px solid var(--line);
+      }
+
+      table {
+        inline-size: 100%;
+        border-collapse: collapse;
+      }
+
+      th,
+      td {
+        padding: 0.8rem 0.75rem;
+        border-block-end: 1px solid var(--line);
+        text-align: start;
+        vertical-align: top;
+      }
+
+      th {
+        font-size: 0.84rem;
+        letter-spacing: 0.035em;
+        text-transform: uppercase;
+      }
+
+      tbody tr:last-child td {
+        border-block-end: 0;
+      }
+
+      td:first-child {
+        font-weight: 650;
+      }
+
+      .rules {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 1rem 2rem;
+        margin: 0;
+        padding: 0;
+        list-style: none;
+      }
+
+      .rules li {
+        padding-block-start: 0.75rem;
+        border-block-start: 2px solid var(--line);
+      }
+
+      .rules strong {
+        display: block;
+        margin-block-end: 0.25rem;
+      }
+
+      .rules span {
+        color: var(--muted);
+      }
+
+      .decision-grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 1rem;
+      }
+
+      .decision {
+        padding: 1rem;
+        border: 1px solid var(--line);
+        border-radius: 0.65rem;
+        background: var(--surface);
+      }
+
+      .decision p {
+        margin-block-start: 0.4rem;
+        color: var(--muted);
+      }
+
+      footer {
+        padding-block: 1.5rem 3rem;
+        border-block-start: 1px solid var(--line);
+        color: var(--muted);
+      }
+
+      @media (max-width: 48rem) {
+        .architecture-layout,
+        .rules,
+        .decision-grid {
+          grid-template-columns: minmax(0, 1fr);
+        }
+
+        .supporting-seams {
+          padding-block-start: 1.5rem;
+          border-block-start: 1px solid var(--line);
+        }
+      }
+
+      @media (max-width: 34rem) {
+        header,
+        main,
+        footer {
+          inline-size: min(100% - 1.25rem, var(--max-content));
+        }
+
+        th,
+        td {
+          min-inline-size: 9rem;
+        }
+      }
+
+      @media print {
+        :root {
+          --page: #ffffff;
+          --surface: #ffffff;
+          --surface-soft: #f1f3f5;
+          --text: #111111;
+          --muted: #4a4a4a;
+          --line: #b4b4b4;
+          --realtime: #0b5cab;
+          --realtime-soft: #edf6ff;
+          --transport: #875000;
+          --transport-soft: #fff7e8;
+        }
+
+        body {
+          font-size: 10pt;
+        }
+
+        nav {
+          display: none;
+        }
+
+        main {
+          gap: 2rem;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <p class="eyebrow">Bazario Labs · R2 architecture</p>
+      <h1>Realtime client hierarchy</h1>
+      <p class="lead">
+        A small transport abstraction sits below <code>RealtimeClient</code>. Each layer owns one kind
+        of decision, so platform mechanics, connection lifecycle, RPC, and domain delivery do not
+        overlap.
+      </p>
+      <nav aria-label="Architecture references">
+        <ul>
+          <li><a href="../.agent/ADR/Modules/Transport.md">Transport ADR</a></li>
+          <li><a href="../.agent/ADR/Modules/IdleWatchdog.md">Idle Watchdog ADR</a></li>
+          <li><a href="../.agent/ADR/Modules/Keepalive.md">Keepalive ADR</a></li>
+          <li><a href="../.agent/ADR/Modules/Realtime.md">Realtime ADR</a></li>
+          <li><a href="../.agent/ROADMAP.md">Roadmap</a></li>
+        </ul>
+      </nav>
+    </header>
+
+    <main>
+      <p class="principle">
+        <strong>Ownership rule:</strong> transport owns one physical attempt; watchdog owns timer
+        mechanics; keepalive owns ping/pong state; realtime owns traffic resets, transport effects,
+        and the logical connection across attempts; higher layers own delivery semantics.
+      </p>
+
+      <section aria-labelledby="hierarchy-title">
+        <h2 id="hierarchy-title">Module and runtime hierarchy</h2>
+        <div class="architecture-layout">
+          <figure>
+            <ol class="stack" aria-label="Primary realtime message path">
+              <li class="node">
+                <strong>Product and domain packages</strong>
+                <span>chat · presence · call signaling · application orchestration</span>
+              </li>
+              <li class="edge">typed operations</li>
+              <li class="node">
+                <strong><code>@bazariodev/rpc</code></strong>
+                <span>correlation · acknowledgements · timeouts · explicitly safe retries</span>
+              </li>
+              <li class="edge">
+                <span><code>send</code> · <code>onMessage</code> · <code>onReady</code></span>
+              </li>
+              <li class="node node-realtime">
+                <strong><code>@bazariodev/realtime</code> · <code>RealtimeClient</code></strong>
+                <span>connection intent · JSON protocol · readiness · liveness wiring · reconnect</span>
+              </li>
+              <li class="edge"><code>TransportFactory</code></li>
+              <li class="node node-transport">
+                <strong><code>@bazariodev/transport</code></strong>
+                <span>shared one-attempt contract and platform adapters in one package</span>
+              </li>
+              <li class="edge">implemented by the selected adapter</li>
+              <li class="node">
+                <strong><code>WebSocketAdapter</code></strong>
+                <span>in @bazariodev/transport · browser events · local write admission</span>
+              </li>
+              <li class="edge">wraps</li>
+              <li class="node">
+                <strong>Browser <code>WebSocket</code></strong>
+                <span>platform connection and browser-owned outbound buffer</span>
+              </li>
+              <li class="edge">text frames</li>
+              <li class="node">
+                <strong>Realtime server</strong>
+                <span>connect / ready · ping / pong · application messages</span>
+              </li>
+            </ol>
+            <figcaption>
+              Runtime data flows down this path. The contract and adapters share one package;
+              realtime consumes only the injected interface.
+            </figcaption>
+          </figure>
+
+          <aside aria-labelledby="support-title">
+            <h2 id="support-title">Supporting seams</h2>
+            <dl class="supporting-seams">
+              <div>
+                <dt>Application composition root</dt>
+                <dd>Chooses an adapter from <code>transport</code> and injects a factory into RealtimeClient.</dd>
+              </div>
+              <div>
+                <dt><code>@bazariodev/auth-session</code></dt>
+                <dd>Supplies fresh credentials for each realtime connect packet.</dd>
+              </div>
+              <div>
+                <dt><code>@bazariodev/net-monitor</code></dt>
+                <dd>
+                  Detects online, visibility, and wake changes; requests <code>probeNow()</code> or
+                  <code>reconnect()</code>.
+                </dd>
+              </div>
+              <div>
+                <dt><code>@bazariodev/fsm</code> + <code>fsm-delays</code></dt>
+                <dd>Implement RealtimeClient state transitions and deterministic timers.</dd>
+              </div>
+              <div>
+                <dt><code>@bazariodev/idle-watchdog</code></dt>
+                <dd>Owns one re-armable inactivity timer; it does not classify traffic.</dd>
+              </div>
+              <div>
+                <dt><code>@bazariodev/keepalive</code></dt>
+                <dd>
+                  Owns one configurable idle or immediate ping/pong round and its response deadline;
+                  it never touches the transport.
+                </dd>
+              </div>
+              <div>
+                <dt><code>fsm-react</code> / <code>fsm-inspect</code></dt>
+                <dd>Observe the realtime snapshot; they do not control transport resources.</dd>
+              </div>
+            </dl>
+          </aside>
+        </div>
+      </section>
+
+      <section aria-labelledby="ownership-title">
+        <h2 id="ownership-title">Concern ownership</h2>
+        <p class="section-intro">
+          Every concern has one policy owner. Lower layers report facts; higher layers decide meaning.
+        </p>
+        <section
+          class="table-wrap"
+          aria-label="Concern ownership table"
+          tabindex="0"
+        >
+          <table>
+            <thead>
+              <tr>
+                <th scope="col">Concern</th>
+                <th scope="col">Owner</th>
+                <th scope="col">Boundary</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>One connection attempt</td>
+                <td>Concrete transport adapter</td>
+                <td>Maps platform open/message/error/close and releases platform resources.</td>
+              </tr>
+              <tr>
+                <td>Transport contract</td>
+                <td><code>@bazariodev/transport</code></td>
+                <td>Defines ordered messages and local send admission; contains no policy runtime.</td>
+              </tr>
+              <tr>
+                <td>Logical connection lifecycle</td>
+                <td><code>RealtimeClient</code></td>
+                <td>Owns intent, attempts, connect timeout, backoff, replacement, and readiness.</td>
+              </tr>
+              <tr>
+                <td>Idle timer mechanics</td>
+                <td><code>IdleWatchdog</code></td>
+                <td>Arms, resets on command, and emits one idle event without resource policy.</td>
+              </tr>
+              <tr>
+                <td>Ping/pong conversation</td>
+                <td><code>Keepalive</code></td>
+                <td>
+                  Creates idle or immediate probes, bounds each pong response, and emits send or
+                  timeout requests.
+                </td>
+              </tr>
+              <tr>
+                <td>Traffic reset and liveness effects</td>
+                <td><code>RealtimeClient</code></td>
+                <td>Classifies accepted traffic, resets the watchdog, writes probes, and retires attempts.</td>
+              </tr>
+              <tr>
+                <td>Realtime wire protocol</td>
+                <td><code>RealtimeClient</code></td>
+                <td>Defines connect/ready and ping/pong shapes, validates, and delegates probe state.</td>
+              </tr>
+              <tr>
+                <td>Credentials and refresh</td>
+                <td><code>auth-session</code></td>
+                <td>Realtime requests fresh credentials but never stores or refreshes them.</td>
+              </tr>
+              <tr>
+                <td>Network and wake detection</td>
+                <td><code>net-monitor</code></td>
+                <td>Reports environmental change and calls the public reconnect seam.</td>
+              </tr>
+              <tr>
+                <td>Request/response delivery</td>
+                <td><code>rpc</code></td>
+                <td>Owns correlation, acknowledgement, timeout, and retry eligibility.</td>
+              </tr>
+              <tr>
+                <td>Durable delivery and recovery</td>
+                <td>Domain package</td>
+                <td>Owns outbox, idempotency, deduplication, cursors, and state resynchronization.</td>
+              </tr>
+            </tbody>
+          </table>
+        </section>
+      </section>
+
+      <section aria-labelledby="dependency-title">
+        <h2 id="dependency-title">Dependency rules</h2>
+        <ul class="rules">
+          <li>
+            <strong>Transport stays policy-free</strong>
+            <span>No FSM, reconnect, heartbeat, auth, network monitor, or cross-attempt queue.</span>
+          </li>
+          <li>
+            <strong>Realtime stays adapter-free</strong>
+            <span>It consumes the transport contract; the application constructs the concrete adapter.</span>
+          </li>
+          <li>
+            <strong>Liveness helpers stay resource-free</strong>
+            <span>They emit events; only RealtimeClient resets activity or acts on a transport.</span>
+          </li>
+          <li>
+            <strong>RPC stays lifecycle-free</strong>
+            <span>It consumes readiness and messages without opening or replacing transports.</span>
+          </li>
+          <li>
+            <strong>Domains own replay meaning</strong>
+            <span>No lower layer blindly replays application messages after reconnect.</span>
+          </li>
+        </ul>
+      </section>
+
+      <section aria-labelledby="contract-title">
+        <h2 id="contract-title">The intentionally small transport seam</h2>
+        <p class="section-intro">
+          A transport is constructed for one attempt, started once, and discarded when that attempt
+          ends. Sending returns normally on local acceptance and throws on rejection; successful
+          return is not a delivery acknowledgement.
+        </p>
+        <pre tabindex="0"><code>interface Transport {
+  start(handlers: TransportHandlers): void;
+  send(message: string | Uint8Array): void;
+  close(): void;
+  [Symbol.dispose](): void;
+}
+
+type TransportFactory = () =&gt; Transport;</code></pre>
+      </section>
+
+      <section aria-labelledby="decision-title">
+        <h2 id="decision-title">What changed from the earlier draft</h2>
+        <div class="decision-grid">
+          <article class="decision">
+            <h3>Kept: transport abstraction</h3>
+            <p>
+              RealtimeClient uses a reusable one-attempt port. One <code>transport</code> package
+              contains the contract, <code>WebSocketAdapter</code>, <code>HttpAdapter</code>,
+              and <code>WebTransportAdapter</code>.
+            </p>
+          </article>
+          <article class="decision">
+            <h3>Removed: <code>ManagedConnection</code></h3>
+            <p>
+              Transport no longer owns reconnect, heartbeat, offline policy, an FSM, or a cross-attempt queue.
+              Those concerns either belong to RealtimeClient or to a higher delivery layer.
+            </p>
+          </article>
+          <article class="decision">
+            <h3>Kept: one lifecycle owner</h3>
+            <p>
+              RealtimeClient alone replaces stale attempts, applies backoff, gates readiness, and
+              turns liveness events into generation-guarded transport actions.
+            </p>
+          </article>
+          <article class="decision">
+            <h3>Added: bounded liveness primitives</h3>
+            <p>
+              IdleWatchdog owns one inactivity timer; Keepalive owns one protocol round and response
+              deadline at a time. Neither owns traffic classification, socket writes, closing, or
+              reconnecting. Keepalive can also probe immediately without scheduling through the
+              watchdog.
+            </p>
+          </article>
+          <article class="decision">
+            <h3>Implemented: stream adapters</h3>
+            <p>
+              HTTP uses streaming GET and sequential POSTs; WebTransport uses one reliable bidirectional
+              stream. Both preserve text and binary messages with length-prefixed frames. Polling and
+              live upgrades remain out of scope.
+            </p>
+          </article>
+        </div>
+      </section>
+    </main>
+
+    <footer>
+      <p>Proposed R2 architecture · revised 2026-09-14</p>
+    </footer>
+  </body>
+</html>

@@ -26,7 +26,7 @@ Review notes:
 
 ## Module map
 
-Status legend: `shipped` / `adr` (written, not implemented) / `planned` / `backlog`. Package names are provisional.
+Status legend: `shipped` / `implemented, release pending` / `adr` (written, not implemented) / `planned` / `backlog`. Package names are provisional.
 
 ### Layer 0 — State platform
 
@@ -43,10 +43,15 @@ Status legend: `shipped` / `adr` (written, not implemented) / `planned` / `backl
 
 ### Layer 1 — Connectivity and session
 
+Responsibility and dependency guide: [`docs/realtime-client-hierarchy.html`](../docs/realtime-client-hierarchy.html).
+
 | Package | Purpose | Status | Release |
 | --- | --- | --- | --- |
-| `transport-ws` | reconnecting WebSocket client: connecting/connected/backoff states, heartbeat, offline-aware | planned | R2 |
-| `rpc` | request/response correlation, timeouts, typed methods over any transport | planned | R2 |
+| `transport` | shared one-attempt contract with WebSocket, streaming HTTP (GET + POST), and reliable-stream WebTransport adapters | implemented, release pending | R2 |
+| `idle-watchdog` | re-armable one-shot inactivity timer; consumers own reset and idle-event policy | adr | R2 |
+| `keepalive` | protocol-configurable ping/pong state driven by idle or immediate probes; owns one response deadline, never the transport | adr | R2 |
+| `realtime` | logical `RealtimeClient` over `transport`: JSON handshake, readiness, idle keepalive composition, and reconnect backoff across attempts | adr | R2 |
+| `rpc` | request/response correlation, timeouts, and typed methods over `RealtimeClient` messages | planned | R2 |
 | `auth-session` | token lifecycle machine (login, refresh, expiry, logout) with storage port | planned | R2 |
 | `net-monitor` | online/offline, tab visibility, sleep/wake detection | planned | R2 |
 | `scheduler-worker` | Worker-backed `Scheduler` for `fsm-delays` that survives background-tab timer throttling | backlog | post-MVP improvement |
@@ -79,7 +84,7 @@ Status legend: `shipped` / `adr` (written, not implemented) / `planned` / `backl
 
 | Item | Purpose | Release |
 | --- | --- | --- |
-| `examples/server` | tiny Node backend for demos: auth, presence, chat fan-out over `transport-ws` + `rpc` | grows R2→R5 |
+| `examples/server` | tiny Node backend for demos: auth, presence, and chat fan-out over `realtime` + `rpc` | grows R2→R5 |
 | `docker/pbx` | compose file with a SIP server (Asterisk/FreeSWITCH) for real calls in dev | R3 |
 | `examples/softphone` | the reference UCaaS MVP app (React) — the stop line | R5 |
 
@@ -97,7 +102,8 @@ Packages version independently via Changesets, so a "release" here is a mileston
 ### R2 — Connectivity
 
 - Goal: a session that survives the real internet.
-- Build: `transport-ws`, `rpc`, `auth-session`, `net-monitor`; extract `fsm-retry` from the transport's backoff implementation (the "real call site" the Delays ADR was waiting for). Start `examples/server`.
+- Build: `transport` (shared contract and WebSocket, HTTP, WebTransport adapters), `idle-watchdog`, `keepalive`, `realtime`, `rpc`, `auth-session`, `net-monitor`; extract `fsm-retry` from the realtime client's backoff implementation (the "real call site" the Delays ADR was waiting for). Start `examples/server`.
+- Decision gate: keep `transport` limited to one physical attempt and keep logical lifecycle policy in `realtime`. HTTP and WebTransport share the package and a documented binary framing contract; validate deployment servers against it.
 - Exit criteria: demo signs in, stays connected through network flaps and laptop sleep, re-authenticates silently, shows connection state.
 
 ### R3 — First call
@@ -153,6 +159,6 @@ Conference/merge, attended transfer, video, screen share, SMS/MMS ports, voicema
 ## Working agreements
 
 - Every new module gets an ADR under `.agent/ADR/Modules/` before scaffolding; statuses are maintained (Proposed → Accepted when shipped).
-- Domain modules are backend-agnostic via ports; concrete protocol/vendor adapters are separate packages.
+- Domain modules are backend-agnostic via ports; concrete protocol/vendor adapters are separate packages, except related transport adapters share the `transport` package.
 - Packages version independently; release trains are milestones; `1.0.0` = API freeze per package.
 - Each release train ends with a runnable demo under `examples/` — the demo is the acceptance test for that train.

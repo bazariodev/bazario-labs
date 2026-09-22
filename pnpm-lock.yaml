@@ -95,6 +95,8 @@ importers:
         specifier: ^19.2.3
         version: 19.2.7(react@19.2.7)
 
+  packages/transport: {}
+
 packages:
 
   '@acemir/cssom@0.9.31':

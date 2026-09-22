@@ -13,6 +13,12 @@ TypeScript SDKs and tools for the UCaaS domain — realtime, SIP, chat, and tele
 | [`@bazariodev/fsm-react`](./packages/fsm-react) | React bindings for FSM sources with `useSyncExternalStore`, selector bail-outs, and component-owned machine lifecycle helpers. |
 | [`@bazariodev/fsm-persist`](./packages/fsm-persist) | Snapshot persistence for `@bazariodev/fsm`: write-through storage, versioned records, and rehydrate-by-construction helpers for flat machines and hierarchies. |
 | [`@bazariodev/fsm-inspect`](./packages/fsm-inspect) | Dev-time inspection helpers for transition timelines, logger capture, source commit recording, and Mermaid diagram export. |
+| [`@bazariodev/transport`](./packages/transport) | Shared transport contract and plain JavaScript WebSocket, streaming HTTP, and WebTransport adapters with bounded writes and disposal. |
+
+## Architecture
+
+- [Proposed R2 realtime client hierarchy](./docs/realtime-client-hierarchy.html) — module dependencies
+  and responsibility boundaries for transport, realtime, RPC, auth, network recovery, and domains.
 
 ## Getting started
 

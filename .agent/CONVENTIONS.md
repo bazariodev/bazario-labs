@@ -4,11 +4,13 @@ This file captures implementation guidance for agents and contributors working i
 
 ## Package Design
 
-- Build small, reusable TypeScript SDK packages for UCaaS and realtime workflows.
+- Build small, reusable SDK packages for UCaaS and realtime workflows.
 - When designing abstractions, favor SOLID, separation of concerns, and inversion of control.
 - Prefer smaller reusable modules over broad, tightly coupled implementations.
 - Prefer dependency-light implementations unless a dependency clearly reduces maintenance cost.
-- Keep public APIs intentional and export them from `src/index.ts`.
+- Write new abstractions in plain JavaScript and export runtime APIs from `src/index.js`.
+- Keep TypeScript declarations in `src/index.d.ts` for the external consumer interface only.
+- Keep implementations straightforward; add checks only for the documented contract and actual platform behavior.
 - Design packages for frontend runtimes, Node-based tooling, and realtime communication clients.
 
 ## Repository Structure
@@ -23,17 +25,19 @@ This file captures implementation guidance for agents and contributors working i
 
 - Use Vitest for unit tests.
 - Place test files in a `__tests__` folder for each package or module area.
-- Name test files `*.test.ts`.
-- Prefer tests that exercise public behavior rather than internal implementation details.
+- Name new behavioral test files `*.test.js`; existing TypeScript tests may remain unchanged.
+- Test public interfaces and observable behavior only, never implementation details or private state.
+- TypeScript consumer examples may verify public declarations, including rejected inputs.
 
 ## TypeScript and Build
 
-- Use strict TypeScript settings.
-- Avoid both explicit `any` and implicit `any` in package code.
+- Use strict TypeScript settings for public declarations and consumer-interface tests.
+- Do not add internal TypeScript types or JSDoc type annotations to new JavaScript implementations.
+- Existing TypeScript packages may remain unchanged; avoid `any` in their code and public interfaces.
 - Target modern JavaScript with `ES2022`.
 - Use `NodeNext` module settings.
 - Build packages with `tsup` and ship both ESM and CommonJS outputs.
-- Preserve declaration files and source maps for published packages.
+- Preserve public declaration files and source maps for published packages; provide matching ESM and CommonJS declarations.
 - SDK packages should remain tree-shakable through focused exports and side-effect-free design.
 
 ## Code Quality
@@ -41,8 +45,8 @@ This file captures implementation guidance for agents and contributors working i
 - Use Biome for linting and formatting.
 - Preserve the existing code style and keep changes focused.
 - Avoid adding unnecessary abstractions or dependencies.
-- Prefer explicit types and predictable state transitions.
-- Do not rely on `any` as a shortcut when a concrete type, generic, or `unknown` is more accurate.
+- Prefer straightforward control flow and predictable state transitions.
+- Keep public interface types precise; use `unknown` for untrusted external values.
 
 ## Release Workflow
 
