@@ -1,12 +1,12 @@
 import { describe, expect, it } from 'vitest';
 
-import { FsmEffects } from '../fsm-effects.js';
+import { FsmEffects } from '../index.js';
 import { createMachine } from './helpers.js';
 
 describe('FsmEffects re-entrancy', () => {
   it('allows api.send from inside an effect body to drive the machine', () => {
     const machine = createMachine('a');
-    const log: string[] = [];
+    const log = [];
 
     new FsmEffects(machine, {
       effects: {
@@ -24,9 +24,31 @@ describe('FsmEffects re-entrancy', () => {
     expect(log).toEqual(['a-enter', 'b-enter']);
   });
 
+  it('finishes and cleans up an initial effect before entering the state it sends to', () => {
+    const machine = createMachine('a');
+    const log = [];
+
+    new FsmEffects(machine, {
+      effects: {
+        a: (_, api) => {
+          log.push('a start');
+          api.send({ type: 'GO_B' });
+          log.push('a end');
+          return () => log.push('a cleanup');
+        },
+        b: () => {
+          log.push('b enter');
+        },
+      },
+    });
+
+    expect(machine.state).toBe('b');
+    expect(log).toEqual(['a start', 'a end', 'a cleanup', 'b enter']);
+  });
+
   it('skips stale subscriber callbacks via the version guard', () => {
     const machine = createMachine('a');
-    const log: string[] = [];
+    const log = [];
 
     machine.subscribe((snapshot) => {
       if (snapshot.value === 'b') machine.send({ type: 'GO_C' });
@@ -55,7 +77,7 @@ describe('FsmEffects re-entrancy', () => {
 
   it('does not spawn stale effects when cleanup triggers a nested send to a different state', () => {
     const machine = createMachine('a');
-    const log: string[] = [];
+    const log = [];
 
     new FsmEffects(machine, {
       effects: {
@@ -83,7 +105,7 @@ describe('FsmEffects re-entrancy', () => {
 
   it('still spawns entered-state effects when cleanup triggers a self-transition on that state', () => {
     const machine = createMachine('a');
-    const log: string[] = [];
+    const log = [];
 
     new FsmEffects(machine, {
       effects: {
@@ -109,7 +131,7 @@ describe('FsmEffects re-entrancy', () => {
 
   it('does not double-spawn effects when a cascade returns to the original target state', () => {
     const machine = createMachine('a');
-    const log: string[] = [];
+    const log = [];
 
     new FsmEffects(machine, {
       effects: {
@@ -149,7 +171,7 @@ describe('FsmEffects re-entrancy', () => {
 
   it('runs every leaving-state cleanup before entered-state effects when an early cleanup sends to another state', () => {
     const machine = createMachine('a');
-    const log: string[] = [];
+    const log = [];
 
     new FsmEffects(machine, {
       effects: {
@@ -189,7 +211,7 @@ describe('FsmEffects re-entrancy', () => {
         '*': {},
       },
     });
-    const log: string[] = [];
+    const log = [];
 
     new FsmEffects(machine, {
       effects: {
@@ -220,7 +242,7 @@ describe('FsmEffects re-entrancy', () => {
 
   it('stops the spawn loop for the leaving state when a nested send aborts its controller mid-spawn', () => {
     const machine = createMachine('a');
-    const log: string[] = [];
+    const log = [];
 
     new FsmEffects(machine, {
       effects: {
@@ -247,7 +269,7 @@ describe('FsmEffects re-entrancy', () => {
 
   it('no-ops api.send invoked from a cleanup after the state has been left', () => {
     const machine = createMachine('a');
-    const log: string[] = [];
+    const log = [];
 
     new FsmEffects(machine, {
       effects: {

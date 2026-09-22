@@ -1,12 +1,12 @@
 import { describe, expect, it } from 'vitest';
 
-import { FsmEffects } from '../fsm-effects.js';
+import { FsmEffects } from '../index.js';
 import { createMachine, flush } from './helpers.js';
 
 describe('FsmEffects async effects', () => {
   it('returns from the constructor without awaiting the effect body', async () => {
     const machine = createMachine('a');
-    const log: string[] = [];
+    const log = [];
 
     new FsmEffects(machine, {
       effects: {
@@ -27,7 +27,7 @@ describe('FsmEffects async effects', () => {
 
   it('registers a cleanup returned from a resolved promise', async () => {
     const machine = createMachine('a');
-    const log: string[] = [];
+    const log = [];
 
     new FsmEffects(machine, {
       effects: {
@@ -54,9 +54,9 @@ describe('FsmEffects async effects', () => {
 
   it('invokes a late-arriving cleanup immediately when the controller already aborted', async () => {
     const machine = createMachine('a');
-    const log: string[] = [];
-    let resolveCleanup!: (cleanup: () => void) => void;
-    const pending = new Promise<() => void>((resolve) => {
+    const log = [];
+    let resolveCleanup;
+    const pending = new Promise((resolve) => {
       resolveCleanup = resolve;
     });
 
@@ -83,7 +83,7 @@ describe('FsmEffects async effects', () => {
 
   it('ignores a promise that resolves to undefined (no cleanup to register)', async () => {
     const machine = createMachine('a');
-    const log: string[] = [];
+    const log = [];
 
     new FsmEffects(machine, {
       effects: {

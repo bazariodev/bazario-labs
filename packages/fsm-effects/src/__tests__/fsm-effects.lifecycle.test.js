@@ -1,12 +1,12 @@
 import { describe, expect, it, vi } from 'vitest';
 
-import { FsmEffects } from '../fsm-effects.js';
+import { FsmEffects } from '../index.js';
 import { createMachine } from './helpers.js';
 
 describe('FsmEffects lifecycle', () => {
   it('spawns initial-state effects during construction', () => {
     const machine = createMachine('a');
-    const log: string[] = [];
+    const log = [];
 
     new FsmEffects(machine, {
       effects: {
@@ -26,8 +26,7 @@ describe('FsmEffects lifecycle', () => {
     new FsmEffects(machine, { effects: { a: effect } });
 
     expect(effect).toHaveBeenCalledOnce();
-    // biome-ignore lint/style/noNonNullAssertion: presence asserted by preceding toHaveBeenCalledOnce
-    const [snapshot, api] = effect.mock.calls[0]!;
+    const [snapshot, api] = effect.mock.calls[0];
     expect(snapshot).toBe(machine.snapshot);
     expect(snapshot.value).toBe('a');
     expect(snapshot.previousValue).toBeNull();
@@ -39,7 +38,7 @@ describe('FsmEffects lifecycle', () => {
 
   it('spawns wildcard effects in addition to state-specific effects', () => {
     const machine = createMachine('a');
-    const log: string[] = [];
+    const log = [];
 
     new FsmEffects(machine, {
       effects: {
@@ -57,7 +56,7 @@ describe('FsmEffects lifecycle', () => {
 
   it('runs state-specific effects before wildcard effects', () => {
     const machine = createMachine('a');
-    const log: string[] = [];
+    const log = [];
 
     new FsmEffects(machine, {
       effects: {
@@ -75,7 +74,7 @@ describe('FsmEffects lifecycle', () => {
 
   it('runs multiple effects on a state in declaration order', () => {
     const machine = createMachine('a');
-    const log: string[] = [];
+    const log = [];
 
     new FsmEffects(machine, {
       effects: {
@@ -98,7 +97,7 @@ describe('FsmEffects lifecycle', () => {
 
   it('spawns new-state effects on transition', () => {
     const machine = createMachine('a');
-    const log: string[] = [];
+    const log = [];
 
     new FsmEffects(machine, {
       effects: {
@@ -118,7 +117,7 @@ describe('FsmEffects lifecycle', () => {
 
   it('runs the cleanup from the leaving state before spawning the entered state', () => {
     const machine = createMachine('a');
-    const log: string[] = [];
+    const log = [];
 
     new FsmEffects(machine, {
       effects: {
@@ -141,7 +140,7 @@ describe('FsmEffects lifecycle', () => {
 
   it('runs cleanups for multiple effects on the same state in registration order', () => {
     const machine = createMachine('a');
-    const log: string[] = [];
+    const log = [];
 
     new FsmEffects(machine, {
       effects: {
@@ -166,7 +165,7 @@ describe('FsmEffects lifecycle', () => {
 
   it('spawns nothing for states without effect entries', () => {
     const machine = createMachine('a');
-    const log: string[] = [];
+    const log = [];
 
     new FsmEffects(machine, {
       effects: {
@@ -186,7 +185,7 @@ describe('FsmEffects lifecycle', () => {
     const machine = createMachine('a');
     machine.send({ type: 'GO_B' });
 
-    const log: string[] = [];
+    const log = [];
 
     new FsmEffects(machine, {
       effects: {
@@ -209,7 +208,7 @@ describe('FsmEffects lifecycle', () => {
 
   it('delivers an effect a snapshot whose value matches the entered state', () => {
     const machine = createMachine('a');
-    const visited: Array<{ value: string; version: number }> = [];
+    const visited = [];
 
     new FsmEffects(machine, {
       effects: {

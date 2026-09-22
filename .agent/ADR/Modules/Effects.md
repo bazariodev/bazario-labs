@@ -133,7 +133,7 @@ For an accepted transition `A → B` (where `A !== B`):
 For initial-state effects:
 
 - the runner constructor captures `machine.snapshot` once at construction time. The initial state is that snapshot's `value`; the runner does not read `config.initial` from the machine config (which it cannot access through `FsmCore`).
-- ordering inside the constructor is fixed: capture the snapshot, normalize the config (see "Config isolation" below), commit notification bookkeeping (`#processedState = snapshot.value`, `#lastProcessedVersion = snapshot.version`), build the initial `AbortController`, **then subscribe to the machine**, **then** spawn the state-specific and `*` effects. The subscription must be in place before any effect runs so that a synchronous `api.send` from an initial effect is delivered back into the runner instead of being missed.
+- ordering inside the constructor is fixed: normalize the config (see "Config isolation" below), capture the snapshot, commit notification bookkeeping (`#state = snapshot.value`, `#version = snapshot.version`), **then subscribe to the machine**, **then** hand the snapshot to the same drain loop that handles transitions (see below), which spawns the state-specific and `*` effects. There is no separate initial spawn path; a synchronous `api.send` from an initial effect is queued like any nested send. The subscription must be in place before any effect runs so that a synchronous `api.send` from an initial effect is delivered back into the runner instead of being missed.
 - the constructor returns only after effects have been scheduled (not necessarily resolved)
 
 For rejected transitions:
@@ -143,18 +143,18 @@ For rejected transitions:
 For self-transitions (`A → A`):
 
 - effects are **not** restarted, matching the existing rule that `onStateLeave` and `onStateEnter` do not fire on self-transitions
-- the runner detects self-transitions by comparing the incoming snapshot's `value` with its notification tracker (`#processedState`); it does not rely on `snapshot.previousValue`
+- the runner detects self-transitions by comparing the incoming snapshot's `value` with its notification tracker (`#state`); it does not rely on `snapshot.previousValue`
 
 For stale subscriber callbacks and re-entrant `api.send`:
 
-The base core delivers subscriber callbacks against a snapshotted subscriber list (`Base/CoreFSM.md` §8). Any subscriber — or any effect or cleanup calling `api.send`/`machine.send` — can trigger a nested commit while the runner is still mid-work. The runner serializes all of it through a single **drain loop** so that effect spawning never interleaves with cleanup execution. The rule holds for both ordinary and nested invocations:
+The base core delivers subscriber callbacks against a snapshotted subscriber list (`Base/CoreFSM.md` §8). The core `Fsm` no longer delivers an older snapshot after a newer one, but the runner accepts any `FsmCore` (for example a hierarchy node handle), so it keeps the version guard in step 1. Any subscriber — or any effect or cleanup calling `api.send`/`machine.send` — can trigger a nested commit while the runner is still mid-work. The runner serializes all of it through a single **drain loop** so that effect spawning never interleaves with cleanup execution. The rule holds for both ordinary and nested invocations:
 
-1. on every callback, if `snapshot.version <= #lastProcessedVersion`, **skip and return** (this commit has already been processed by a nested invocation)
-2. otherwise, set `#lastProcessedVersion = snapshot.version`
-3. if `snapshot.value === #processedState`, it is a self-transition — return without further work; otherwise update `#processedState = snapshot.value`
+1. on every callback, if `snapshot.version <= #version`, **skip and return** (this commit has already been processed by a nested invocation)
+2. otherwise, set `#version = snapshot.version`
+3. if `snapshot.value === #state`, it is a self-transition — return without further work; otherwise update `#state = snapshot.value`
 4. otherwise, record the snapshot as the pending target (`#pending`). If a drain loop is already running (`#draining`), **return** — the active loop owns all controller and spawn work; the nested call has only handed it the newer target
 5. otherwise run the drain loop until there is no pending target (or the runner is stopped). Each turn takes the pending target as `next`, clears `#pending`, and:
-   1. creates the new controller (`#controller = newController`) before aborting anything. Notification sequencing is tracked separately in `#processedState`, so this provisional controller assignment is not used to decide whether later nested callbacks are self-transitions.
+   1. creates the new controller (`#controller = newController`) before aborting anything. Notification sequencing is tracked separately in `#state`, so this provisional controller assignment is not used to decide whether later nested callbacks are self-transitions.
    2. aborts the previous controller. This fires the leaving state's cleanups synchronously, in registration order. A cleanup that calls `send()` re-enters at step 4, sets `#pending`, and returns (because `#draining` is `true`) — so **every** leaving-state cleanup finishes before any further work, and none of them interleave with the entered state's effects
    3. if `stop()` was called during the cleanups, break out of the loop
    4. if the cleanups produced a new `#pending` target, the machine has moved past `next`; **skip spawning** it and let the loop process the newer target on its next turn
@@ -199,17 +199,13 @@ runner[Symbol.dispose](): void  // alias for stop()
 
 ## Validation
 
-The runner constructor fails fast for:
-
-- effects map that is not an object
-- effect entries that are not functions or arrays of functions
-- effect arrays that contain non-function entries
+The runner constructor fails fast when an effect entry is not a function or an array of functions. This one check stays, unlike the core's removed shape checks, because effect errors are logged rather than thrown: without it a misconfigured JavaScript effect would surface only as a log line. It also rejects an `effects` value that is not a plain object, (its prototype must be `Object.prototype` or `null`), because `Object.entries` would otherwise accept an array, a primitive, a `Map`, or a `Date` and silently disable every effect.
 
 State name membership against the machine config is **not** validated. `FsmCore` does not expose declared state names, and the `EffectsConfig` type already constrains keys to `TState | '*'`, so TypeScript catches typos at the call site. Pure-JavaScript callers who pass an unknown key will see their effect silently never fire — diagnosable, and not worth the runtime surface to catch.
 
 ## Config isolation
 
-During construction the runner normalizes each effect entry into a private frozen array. A single function is wrapped in a one-element array; a user-supplied array is copied. Subsequent mutation of the consumer's `config.effects` map, replacement of an entry, or splicing into the original arrays does not change runtime behavior — the runner iterates its own copies.
+During construction the runner normalizes each effect entry into a private array. The copies are not frozen because nothing outside the runner can reach them. A single function is wrapped in a one-element array; a user-supplied array is copied. Subsequent mutation of the consumer's `config.effects` map, replacement of an entry, or splicing into the original arrays does not change runtime behavior — the runner iterates its own copies.
 
 Function references are captured at construction time and not deep-cloned (functions cannot be cloned in any useful way). Reassigning a property *inside* the effect's closure remains the consumer's responsibility; that is normal JavaScript and not something the runner can or should defend against.
 

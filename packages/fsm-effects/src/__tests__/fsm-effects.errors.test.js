@@ -1,7 +1,7 @@
 import { Fsm } from '@bazariodev/fsm';
 import { describe, expect, it } from 'vitest';
 
-import { FsmEffects } from '../fsm-effects.js';
+import { FsmEffects } from '../index.js';
 import { createLogger, createMachine } from './helpers.js';
 
 describe('FsmEffects error containment', () => {
@@ -9,7 +9,7 @@ describe('FsmEffects error containment', () => {
     const logger = createLogger();
     const machine = createMachine('a');
     const boom = new Error('boom');
-    const log: string[] = [];
+    const log = [];
 
     new FsmEffects(machine, {
       logger,
@@ -59,8 +59,8 @@ describe('FsmEffects error containment', () => {
   it('logs async rejection at debug level when the signal has aborted', async () => {
     const logger = createLogger();
     const machine = createMachine('a');
-    let trigger!: () => void;
-    const wait = new Promise<void>((resolve) => {
+    let trigger;
+    const wait = new Promise((resolve) => {
       trigger = resolve;
     });
 
@@ -96,7 +96,7 @@ describe('FsmEffects error containment', () => {
     const logger = createLogger();
     const machine = createMachine('a');
     const boom = new Error('cleanup-boom');
-    const log: string[] = [];
+    const log = [];
 
     new FsmEffects(machine, {
       logger,
@@ -126,7 +126,7 @@ describe('FsmEffects error containment', () => {
 
   it('propagates machine errors raised by api.send when the signal is not aborted', () => {
     const boom = new Error('guard-failed');
-    const machine = new Fsm<'a' | 'b', { type: 'FAIL' }, { count: number }>({
+    const machine = new Fsm({
       name: 'throwing',
       initial: 'a',
       context: { count: 0 },
@@ -145,7 +145,7 @@ describe('FsmEffects error containment', () => {
       },
     });
 
-    let captured: unknown;
+    let captured;
 
     new FsmEffects(machine, {
       effects: {

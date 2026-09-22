@@ -1,17 +1,12 @@
 import { describe, expect, it, vi } from 'vitest';
 
-import { FsmEffects } from '../fsm-effects.js';
-import {
-  type Context,
-  createMachine,
-  type Event,
-  type State,
-} from './helpers.js';
+import { FsmEffects } from '../index.js';
+import { createMachine } from './helpers.js';
 
 describe('FsmEffects stop', () => {
   it('aborts the current controller and runs registered cleanups on stop()', () => {
     const machine = createMachine('a');
-    const log: string[] = [];
+    const log = [];
 
     const runner = new FsmEffects(machine, {
       effects: {
@@ -26,9 +21,26 @@ describe('FsmEffects stop', () => {
     expect(log).toEqual(['a-cleanup']);
   });
 
+  it('treats a returned function as a cleanup even if it has a then property', () => {
+    const machine = createMachine('a');
+    let cleaned = 0;
+    const cleanup = Object.assign(
+      () => {
+        cleaned += 1;
+      },
+      // biome-ignore lint/suspicious/noThenProperty: the test needs a function that looks thenable
+      { then: () => undefined },
+    );
+
+    const runner = new FsmEffects(machine, { effects: { a: () => cleanup } });
+    runner.stop();
+
+    expect(cleaned).toBe(1);
+  });
+
   it('ignores subsequent machine transitions after stop()', () => {
     const machine = createMachine('a');
-    const log: string[] = [];
+    const log = [];
 
     const runner = new FsmEffects(machine, {
       effects: {
@@ -80,8 +92,8 @@ describe('FsmEffects stop', () => {
 
   it('does not spawn entered-state effects when stop() is called inside a cleanup', () => {
     const machine = createMachine('a');
-    const log: string[] = [];
-    let runner!: FsmEffects<State, Event, Context>;
+    const log = [];
+    let runner;
 
     runner = new FsmEffects(machine, {
       effects: {
@@ -103,8 +115,8 @@ describe('FsmEffects stop', () => {
 
   it('honors stop() called by an earlier subscriber in the same notification pass', () => {
     const machine = createMachine('a');
-    const log: string[] = [];
-    let runner!: FsmEffects<State, Event, Context>;
+    const log = [];
+    let runner;
 
     machine.subscribe(() => {
       runner?.stop();

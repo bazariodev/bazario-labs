@@ -1,5 +1,22 @@
 # @bazariodev/fsm-effects
 
+## 1.1.0
+
+### Minor Changes
+
+- Simplify the effects runner and move its implementation to plain JavaScript with a hand-written
+  public `index.d.ts`, shipped as matching ESM `.d.ts` and CommonJS `.d.cts` declarations. Export
+  names are unchanged.
+
+  - Initial-state effects run through the same drain loop as transitions. When an initial effect
+    sends synchronously, it now finishes and its cleanup runs before the entered state's effects
+    (`a start → a end → a cleanup → b enter`). Previously the entered state's effects ran first,
+    in the middle of the initial effect (`a start → b enter → a end → a cleanup`). This matches the
+    existing rule for transitions: leaving-state cleanups finish before entered-state effects run.
+  - A returned function is always treated as a cleanup, even if it also has a `then` property.
+  - Validation: `effects` must be a plain object, and each entry must be a function or an array of
+    functions. The per-index message for arrays was merged into the entry message.
+
 ## 1.0.0
 
 ### Patch Changes

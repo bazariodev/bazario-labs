@@ -59,7 +59,7 @@ A `send()` from inside an effect or a cleanup runs synchronously, so it can re-e
 - **pass-through states are skipped** — in a synchronous `A → B → C` cascade only the resting state's (`C`) effects spawn;
 - **stale callbacks are dropped** via a monotonic version guard.
 
-Self-transitions (`A → A`) don't restart effects. They're detected by comparing the incoming snapshot's value against `#processedState`, a notification tracker updated when each non-self snapshot is observed — kept deliberately separate from the per-turn `AbortController`, so the provisional controller swap never influences a self-transition decision.
+Self-transitions (`A → A`) don't restart effects. They're detected by comparing the incoming snapshot's value against the last entered state, a notification tracker updated when each non-self snapshot is observed — kept deliberately separate from the per-turn `AbortController`, so the provisional controller swap never influences a self-transition decision.
 
 ### Error policy
 
@@ -67,6 +67,12 @@ Self-transitions (`A → A`) don't restart effects. They're detected by comparin
 - async rejection → `error`, or `debug` if the signal already aborted (e.g. a wrapped `fetch` `AbortError`);
 - cleanup throw → logged, doesn't block other cleanups;
 - nothing is auto-sent — `send({ type: 'EFFECT_FAILED' })` from your own `catch` if you want that.
+
+### Validation
+
+The constructor throws if `effects` is not a plain object, or if an entry is not a function or an
+array of functions. Effect
+errors are logged rather than thrown, so this catches a misconfigured effect up front.
 
 ### `stop()`
 
