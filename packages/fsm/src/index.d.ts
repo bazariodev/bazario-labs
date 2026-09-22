@@ -47,10 +47,14 @@ export type TransitionMap<
   TEvent extends FsmEvent,
   TContext,
 > = Readonly<
-  Record<
-    TState | '*',
-    Readonly<
-      Partial<Record<TEvent['type'], TransitionEntry<TState, TEvent, TContext>>>
+  Partial<
+    Record<
+      TState | '*',
+      Readonly<
+        Partial<
+          Record<TEvent['type'], TransitionEntry<TState, TEvent, TContext>>
+        >
+      >
     >
   >
 >;
@@ -93,12 +97,7 @@ export type StateLeavePayload<
   TState extends string,
   TEvent extends FsmEvent,
   TContext,
-> = Readonly<{
-  from: TState;
-  to: TState;
-  event: TEvent;
-  context: Readonly<TContext>;
-}>;
+> = TransitionStartPayload<TState, TEvent, TContext>;
 
 export type StateDefinition<
   TState extends string,
@@ -172,7 +171,7 @@ export type FsmDiagramConfig = Readonly<{
   initial: string;
   states: Record<string, unknown>;
   transitions: Readonly<
-    Record<string, Readonly<Partial<Record<string, unknown>>>>
+    Partial<Record<string, Readonly<Partial<Record<string, unknown>>>>>
   >;
 }>;
 
@@ -188,6 +187,25 @@ export interface FsmCore<
   readonly snapshot: FsmSnapshot<TState, TContext>;
   readonly state: TState;
   readonly context: Readonly<TContext>;
+  send(event: TEvent): void;
+  can(event: TEvent): boolean;
+  subscribe(listener: FsmSubscriber<TState, TContext>): Unsubscribe;
+}
+
+/** Synchronous finite state machine: one active state, frozen snapshots, post-commit subscriptions. */
+export declare class Fsm<
+  TState extends string,
+  TEvent extends FsmEvent,
+  TContext,
+> implements FsmCore<TState, TEvent, TContext>
+{
+  /** Throws if the state graph is invalid or the initial state's onEnter throws. */
+  constructor(config: FsmConfig<TState, TEvent, TContext>);
+  readonly name: string;
+  readonly snapshot: FsmSnapshot<TState, TContext>;
+  readonly state: TState;
+  readonly context: Readonly<TContext>;
+  /** Throws if called while a transition is in progress, or rethrows a guard, reducer, or hook error. */
   send(event: TEvent): void;
   can(event: TEvent): boolean;
   subscribe(listener: FsmSubscriber<TState, TContext>): Unsubscribe;

@@ -1,10 +1,10 @@
 import { describe, expect, it, vi } from 'vitest';
 
-import { type CallContext, createLogger, createMachine } from './helpers.js';
+import { createLogger, createMachine } from './helpers.js';
 
 describe('Fsm can', () => {
   it('checks guards with the full event without side effects', () => {
-    const reducer = vi.fn((context: Readonly<CallContext>) => ({
+    const reducer = vi.fn((context) => ({
       ...context,
       attempts: context.attempts + 1,
     }));
@@ -66,15 +66,7 @@ describe('Fsm can', () => {
     expect(() => machine.can({ type: 'DIAL', destination: '1001' })).toThrow(
       boom,
     );
-    expect(logger.error).toHaveBeenCalledWith(
-      'fsm: guard evaluation failed',
-      expect.objectContaining({
-        name: 'call-flow',
-        state: 'idle',
-        eventType: 'DIAL',
-        error: boom,
-      }),
-    );
+    expect(logger.error).not.toHaveBeenCalled();
     expect(machine.state).toBe('idle');
   });
 });

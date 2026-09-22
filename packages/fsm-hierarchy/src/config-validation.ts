@@ -104,6 +104,7 @@ function validateTransitions<TEvent extends FsmEvent>(
       throw new Error(MESSAGES.transitionSourceMissing);
     }
 
+    if (eventMap === undefined) continue;
     if (!isRecord(eventMap)) {
       throw new Error(MESSAGES.transitionSourceEventMap);
     }

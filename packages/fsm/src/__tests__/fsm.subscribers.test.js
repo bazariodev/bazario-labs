@@ -1,11 +1,10 @@
 import { describe, expect, it, vi } from 'vitest';
 
-import type { Unsubscribe } from '../types.js';
 import { createContext, createLogger, createMachine } from './helpers.js';
 
 describe('Fsm subscriber delivery', () => {
   it('allows subscribers to send nested transitions after commit', () => {
-    const deliveries: string[] = [];
+    const deliveries = [];
     const machine = createMachine({
       transitions: {
         idle: {
@@ -49,18 +48,17 @@ describe('Fsm subscriber delivery', () => {
       'first:dialing:1:dialing',
       'first:connected:2:connected',
       'second:connected:2:connected',
-      'second:dialing:1:connected',
     ]);
   });
 
   it('uses a stable subscriber list and logs subscriber failures', () => {
     const logger = createLogger();
-    const calls: string[] = [];
+    const calls = [];
     const boom = new Error('subscriber failed');
     const lateSubscriber = vi.fn(() => calls.push('late'));
     const secondSubscriber = vi.fn(() => calls.push('second'));
     const thirdSubscriber = vi.fn(() => calls.push('third'));
-    let unsubscribeSecond: Unsubscribe = () => undefined;
+    let unsubscribeSecond = () => undefined;
     let lateSubscribed = false;
 
     const machine = createMachine({

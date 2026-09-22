@@ -1,6 +1,6 @@
 {
   "name": "@bazariodev/fsm-inspect",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Dev-time inspection helpers for @bazariodev/fsm timelines and Mermaid diagrams.",
   "license": "MIT",
   "author": "Bazario",

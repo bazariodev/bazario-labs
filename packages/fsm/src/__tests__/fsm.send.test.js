@@ -1,9 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 
-import type { FsmSnapshot } from '../types.js';
 import {
-  type CallContext,
-  type CallState,
   createContext,
   createLogger,
   createMachine,
@@ -12,14 +9,12 @@ import {
 
 describe('Fsm send', () => {
   it('commits an accepted transition before notifying subscribers', () => {
-    const calls: string[] = [];
-    const subscriber = vi.fn(
-      (snapshot: FsmSnapshot<CallState, CallContext>) => {
-        calls.push(
-          `subscriber:${snapshot.value}:${snapshot.version}:${snapshot.context.attempts}`,
-        );
-      },
-    );
+    const calls = [];
+    const subscriber = vi.fn((snapshot) => {
+      calls.push(
+        `subscriber:${snapshot.value}:${snapshot.version}:${snapshot.context.attempts}`,
+      );
+    });
 
     const machine = createMachine({
       states: {
@@ -142,7 +137,7 @@ describe('Fsm send', () => {
   });
 
   it('fires only transition hooks for self-transitions', () => {
-    const calls: string[] = [];
+    const calls = [];
     const machine = createMachine({
       states: {
         ...createStates(),
@@ -313,22 +308,8 @@ describe('Fsm send', () => {
       context: createContext(),
       version: 0,
     });
-    expect(logger.error).toHaveBeenCalledWith(
-      'fsm: context reducer failed',
-      expect.objectContaining({
-        name: 'call-flow',
-        state: 'idle',
-        eventType: 'DIAL',
-        target: 'dialing',
-        error: boom,
-      }),
-    );
-    expect(logger.error).not.toHaveBeenCalledWith(
-      'fsm: context reducer failed',
-      expect.objectContaining({
-        meta: expect.anything(),
-      }),
-    );
+    // The error reaches the caller verbatim; it is not also logged.
+    expect(logger.error).not.toHaveBeenCalled();
 
     machine.send({ type: 'FAIL' });
 
@@ -369,16 +350,7 @@ describe('Fsm send', () => {
       context: createContext(),
       version: 0,
     });
-    expect(logger.error).toHaveBeenCalledWith(
-      'fsm: transition before commit hook failed',
-      expect.objectContaining({
-        name: 'call-flow',
-        from: 'idle',
-        to: 'dialing',
-        eventType: 'DIAL',
-        error: boom,
-      }),
-    );
+    expect(logger.error).not.toHaveBeenCalled();
 
     machine.send({ type: 'FAIL' });
 
@@ -419,5 +391,30 @@ describe('Fsm send', () => {
     machine.send({ type: 'FAIL' });
 
     expect(machine.state).toBe('failed');
+  });
+
+  it('treats explicitly undefined transition sources as empty', () => {
+    const machine = createMachine({
+      transitions: {
+        idle: { DIAL: { target: 'dialing' } },
+        dialing: undefined,
+      },
+    });
+
+    machine.send({ type: 'DIAL', destination: '1001' });
+
+    expect(machine.state).toBe('dialing');
+    expect(machine.can({ type: 'CONNECT' })).toBe(false);
+  });
+
+  it('accepts transition maps that omit states without transitions', () => {
+    const machine = createMachine({
+      transitions: { idle: { DIAL: { target: 'dialing' } } },
+    });
+
+    machine.send({ type: 'DIAL', destination: '1001' });
+
+    expect(machine.state).toBe('dialing');
+    expect(machine.can({ type: 'RESET' })).toBe(false);
   });
 });

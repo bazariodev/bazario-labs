@@ -20,7 +20,7 @@ export type AnyHierarchyConfig<TEvent extends FsmEvent> = Readonly<{
   context: unknown;
   states: Record<string, unknown>;
   transitions: Readonly<
-    Record<string, Readonly<Partial<Record<TEvent['type'], unknown>>>>
+    Partial<Record<string, Readonly<Partial<Record<TEvent['type'], unknown>>>>>
   >;
   onTransitionStart?: unknown;
   onTransitionBeforeCommit?: unknown;

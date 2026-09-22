@@ -95,6 +95,21 @@ const createRootConfig = (
 });
 
 describe('FsmHierarchy', () => {
+  it('accepts transition sources that are explicitly undefined', () => {
+    const hierarchy = new FsmHierarchy<Event>(
+      createRootConfig(undefined, {
+        transitions: {
+          idle: { CONNECT: { target: 'connected' } },
+          connected: undefined,
+        },
+      }),
+    );
+
+    hierarchy.send({ type: 'CONNECT' });
+
+    expect(hierarchy.snapshot.path).toBe('connected.active');
+  });
+
   it('spawns children after parent commits and composes snapshots', () => {
     const spawned: string[] = [];
     const hierarchy = new FsmHierarchy<Event>(createRootConfig(), {

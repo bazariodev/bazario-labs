@@ -556,6 +556,16 @@ describe('recordSource', () => {
 });
 
 describe('Mermaid renderers', () => {
+  it('skips transition sources that are explicitly undefined', () => {
+    const diagram = mermaidFromFsmConfig({
+      initial: 'idle',
+      states: { idle: {}, done: {} },
+      transitions: { idle: { GO: { target: 'done' } }, done: undefined },
+    });
+
+    expect(diagram).toContain('GO');
+  });
+
   it('renders flat diagrams with aliases, guards, wildcard notes, and escaping', () => {
     const diagram = mermaidFromFsmConfig({
       name: 'call',

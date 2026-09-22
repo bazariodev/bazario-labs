@@ -1,20 +1,13 @@
 import { describe, expect, it } from 'vitest';
 
-import { Fsm } from '../fsm.js';
-import type { TransitionMap } from '../types.js';
-import {
-  type CallContext,
-  type CallEvent,
-  type CallState,
-  createConfig,
-  createContext,
-  createStates,
-} from './helpers.js';
+import { Fsm } from '../index.js';
+
+import { createConfig, createContext, createStates } from './helpers.js';
 
 describe('Fsm config isolation', () => {
   it('ignores mutations to the transition definitions after construction', () => {
-    const dialTransition = { target: 'dialing' as CallState };
-    const transitions: TransitionMap<CallState, CallEvent, CallContext> = {
+    const dialTransition = { target: 'dialing' };
+    const transitions = {
       idle: {
         DIAL: dialTransition,
       },
@@ -23,11 +16,9 @@ describe('Fsm config isolation', () => {
       failed: {},
       '*': {},
     };
-    const machine = new Fsm<CallState, CallEvent, CallContext>(
-      createConfig({ transitions }),
-    );
+    const machine = new Fsm(createConfig({ transitions }));
 
-    (dialTransition as { target: CallState }).target = 'failed';
+    dialTransition.target = 'failed';
 
     machine.send({ type: 'DIAL', destination: '1001' });
 
@@ -45,7 +36,7 @@ describe('Fsm config isolation', () => {
       ...createStates(),
       dialing: dialingState,
     };
-    const machine = new Fsm<CallState, CallEvent, CallContext>(
+    const machine = new Fsm(
       createConfig({
         states,
         transitions: {
@@ -59,7 +50,7 @@ describe('Fsm config isolation', () => {
     );
 
     let mutatedCalls = 0;
-    (dialingState as { onEnter: () => void }).onEnter = () => {
+    dialingState.onEnter = () => {
       mutatedCalls += 1;
     };
 
@@ -71,9 +62,7 @@ describe('Fsm config isolation', () => {
 
   it('does not copy the context object during construction', () => {
     const context = createContext();
-    const machine = new Fsm<CallState, CallEvent, CallContext>(
-      createConfig({ context }),
-    );
+    const machine = new Fsm(createConfig({ context }));
 
     expect(machine.context).toBe(context);
   });

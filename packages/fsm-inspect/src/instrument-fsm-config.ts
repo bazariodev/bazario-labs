@@ -188,6 +188,7 @@ function wrapTransitions<
 
   for (const source of Object.keys(transitions) as Array<TState | '*'>) {
     const eventMap = transitions[source];
+    if (eventMap === undefined) continue;
     const wrappedEventMap: Partial<
       Record<TEvent['type'], TransitionEntry<TState, TEvent, TContext>>
     > = {};

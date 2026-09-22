@@ -1,6 +1,6 @@
 # @bazariodev/fsm
 
-A small, strongly typed, dependency-free finite state machine for TypeScript. Designed for realtime communications workflows such as SIP signaling, call lifecycle, chat orchestration, and reconnect flows.
+A small, dependency-free finite state machine, implemented in plain JavaScript with strict TypeScript declarations for its public interface. Designed for realtime communications workflows such as SIP signaling, call lifecycle, chat orchestration, and reconnect flows.
 
 The base core is intentionally narrow: deterministic transitions, synchronous context reducers, configuration-driven lifecycle hooks, post-commit subscriptions, and configurable logging. Everything else (effects, timers, history, persistence, hierarchical states) is out of scope for v1 and intended to be composed around the core.
 
@@ -127,7 +127,7 @@ If the current state declares the event and every guard fails, the transition is
 
 All hooks are optional, synchronous, and configuration-driven. During pre-commit hooks, `machine.snapshot`, `machine.state`, and `machine.context` still return the last committed snapshot — hooks should rely on the payload they receive.
 
-If any hook, guard, or reducer throws, the snapshot is not changed and the error is rethrown from `send()`.
+If any hook, guard, or reducer throws, the snapshot is not changed and the error is rethrown from `send()` unchanged. The runtime does not also log it.
 
 ### Subscriptions
 
@@ -138,7 +138,7 @@ const unsubscribe = machine.subscribe((snapshot) => { /* ... */ });
 - Subscribers are notified only after a transition is committed.
 - The runtime snapshots the current subscriber list before notifying, so `subscribe()` or unsubscribe calls inside a callback do not change the current delivery pass.
 - `unsubscribe` is idempotent.
-- If a subscriber triggers a nested transition via `send()`, the nested notification pass runs to completion before the original pass resumes. Later subscribers in the original pass may therefore receive an older snapshot than `machine.snapshot`. Use the snapshot argument the subscriber receives rather than reading `machine.snapshot`.
+- If a subscriber triggers a nested transition via `send()`, the newer snapshot is delivered to every subscriber and the original pass stops. Every subscriber ends on the latest snapshot; a subscriber may skip an intermediate snapshot produced by a nested send, but never receives an older snapshot after a newer one.
 - A subscriber failure does not block other subscribers. The error is reported through the injected logger.
 
 ### Re-entrancy
@@ -157,7 +157,7 @@ type Logger = {
 };
 ```
 
-The default is a no-op logger. The runtime never depends on `console` directly.
+The default is a no-op logger. The runtime never depends on `console` directly. It logs rejected events at `debug` level and subscriber failures at `error` level; errors rethrown to the caller are not logged.
 
 ### Initialization
 
@@ -210,7 +210,11 @@ The constructor fails fast on:
 - transition source states other than `*` that are not declared in `states`
 - transition targets that are not declared in `states`
 - `*` used as a transition target
-- malformed transition definitions
+- empty transition definition arrays
+
+Validation covers the state graph only. Value shapes (for example a non-function `guard`) are left to TypeScript; JavaScript callers get a generic `TypeError` when the value is used.
+
+States without outgoing transitions can be omitted from `transitions`, and `*` is optional.
 
 ## Out of scope for v1
 

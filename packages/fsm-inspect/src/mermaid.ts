@@ -130,6 +130,7 @@ function renderEdges(
   const indent = indentation(depth);
 
   for (const [source, eventMap] of Object.entries(config.transitions)) {
+    if (eventMap === undefined) continue;
     if (!isRecord(eventMap)) throw new Error(MESSAGES.invalidDiagramConfig);
     if (source !== WILDCARD_STATE && !stateNames.includes(source)) {
       throw new Error(MESSAGES.invalidDiagramConfig);

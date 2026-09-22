@@ -1,6 +1,6 @@
 {
   "name": "@bazariodev/fsm-hierarchy",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Hierarchical composition layer for @bazariodev/fsm with post-commit child reconciliation and bubbling event routing.",
   "license": "MIT",
   "author": "Bazario",

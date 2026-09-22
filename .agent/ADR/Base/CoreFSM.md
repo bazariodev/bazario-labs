@@ -150,9 +150,11 @@ type TransitionMap<
   TState extends string,
   TEvent extends FsmEvent,
   TContext,
-> = Record<
-  TState | '*',
-  Partial<Record<string, TransitionEntry<TState, TEvent, TContext>>>
+> = Partial<
+  Record<
+    TState | '*',
+    Partial<Record<string, TransitionEntry<TState, TEvent, TContext>>>
+  >
 >;
 ```
 
@@ -366,9 +368,7 @@ The machine should snapshot the current subscriber list before notification star
 
 `Unsubscribe` is idempotent. Calling it after the subscriber has already been removed is a no-op.
 
-If a subscriber triggers a nested transition via `send()`, the nested notification pass runs to completion before the original pass resumes. Later subscribers in the original pass may therefore receive an older snapshot than `machine.snapshot`.
-
-Subscribers that need the exact snapshot they were notified about should use the snapshot argument they receive rather than reading `machine.snapshot`, because a subscriber callback may trigger a new transition.
+If a subscriber triggers a nested transition via `send()`, the nested notification pass delivers the newer snapshot to every subscriber. The original pass then stops, so no subscriber receives an older snapshot after a newer one. The delivery rule is: every subscriber ends on the latest snapshot, and a subscriber may skip an intermediate snapshot produced by a nested send. The snapshot argument always equals `machine.snapshot` at the moment it is delivered.
 
 Subscriber failures should not block other subscribers. If a subscriber throws, the machine should continue notifying the remaining subscribers and report the failure through the injected logger.
 
@@ -404,13 +404,14 @@ The constructor should fail fast for invalid configuration such as:
 - missing initial state
 - transition target that does not exist
 - transition source states other than `*` that do not have corresponding entries in `states`
-- malformed definitions
+- an empty transition definition array
+- empty `name`
 - use of `*` as a real state name
-- use of `*` as a transition target
+- use of `*` as a transition target (rejected because `*` is never a declared state)
 
-State membership checks must use `Object.hasOwn`, never the `in` operator, so prototype keys such as `toString` cannot satisfy validation. State and transition definitions must be normalized into frozen internal copies during construction so callers cannot mutate runtime behavior by changing their config object afterwards.
+State membership checks must only consider own keys, so prototype keys such as `toString` cannot satisfy validation. State and transition definitions are copied into private internal maps during construction so callers cannot mutate runtime behavior by changing their config object afterwards; the private copies are not frozen because nothing outside the instance can reach them.
 
-Non-goals: the base core does not perform `typeof` validation of `name`, `initial`, or the `logger` shape. The package is TypeScript-first and the generic constraints already enforce these. Pure JavaScript callers that pass malformed values will receive a generic `TypeError` from the offending operation rather than a curated message. This is intentional to keep validation surface narrow; a separate input-hardening layer can sit on top of the core if a future use case requires it.
+Non-goals: the base core validates the state graph, not value shapes. It does not perform `typeof` or object-shape validation of `name`, `initial`, the `logger`, the `states`/`transitions` maps, or the `target`, `guard`, `reducer`, `onEnter`, and `onLeave` fields. The package is TypeScript-first and the generic constraints already enforce these. Pure JavaScript callers that pass malformed values will receive a generic `TypeError` from the offending operation rather than a curated message. This is intentional to keep validation surface narrow; a separate input-hardening layer can sit on top of the core if a future use case requires it.
 
 ## Minimal Public API
 
@@ -576,7 +577,7 @@ The v1 rule should be transactional for machine logic and non-transactional for 
 - if `onTransitionBeforeCommit` throws, do not commit and rethrow from `send()`
 - if a subscriber throws, keep the committed snapshot, continue notifying remaining subscribers, and report the error through the logger
 
-User-thrown errors are propagated verbatim and are not wrapped by the FSM runtime.
+User-thrown errors are propagated verbatim and are not wrapped by the FSM runtime. Because the caller receives them, the runtime does not also log them; the logger reports only failures it swallows (subscribers) and debug-level rejections.
 
 In all rejected or error paths, the transition lock is released before control returns to the caller.
 
