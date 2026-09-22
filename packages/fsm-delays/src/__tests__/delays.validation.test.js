@@ -1,32 +1,25 @@
+import { Fsm } from '@bazariodev/fsm';
 import { describe, expect, it } from 'vitest';
+import { compileDelays, FsmDelays } from '../index.js';
 
-import { compileDelays } from '../compile-delays.js';
-import { FsmDelays } from '../fsm-delays.js';
-import type { DelaysConfig } from '../types.js';
-import {
-  type Context,
-  createLogger,
-  createMachine,
-  createStubScheduler,
-  type Event,
-  type State,
-} from './helpers.js';
+import { createLogger, createMachine, createStubScheduler } from './helpers.js';
 
-type Config = DelaysConfig<State, Event, Context>;
-const compile = (config: unknown): void => {
-  compileDelays(config as Config);
+const compile = (config) => {
+  compileDelays(config);
 };
 
 describe('compileDelays validation', () => {
-  it('throws when delays is not an object', () => {
-    expect(() => compile({ delays: null })).toThrow(
-      'fsm-delays: delays must be an object',
-    );
+  it('throws when delays is not a plain object', () => {
+    for (const delays of [null, [], new Map()]) {
+      expect(() => compile({ delays })).toThrow(
+        'fsm-delays: delays must be a plain object',
+      );
+    }
   });
 
-  it('throws when delays is an array', () => {
-    expect(() => compile({ delays: [] })).toThrow(
-      'fsm-delays: delays must be an object',
+  it('throws on a null entry instead of ignoring it', () => {
+    expect(() => compile({ delays: { ringing: null } })).toThrow(
+      /delays\["ringing"\]\[0\] must be a delay spec/,
     );
   });
 
@@ -86,6 +79,19 @@ describe('compileDelays validation', () => {
     ).toThrow(/\.every must be a finite number > 0/);
   });
 
+  it('throws on a static duration that is not a number', () => {
+    expect(() =>
+      compile({
+        delays: { ringing: { after: '100', send: { type: 'PING' } } },
+      }),
+    ).toThrow(/\.after must be a finite number >= 0/);
+    expect(() =>
+      compile({
+        delays: { connected: { every: null, send: { type: 'PING' } } },
+      }),
+    ).toThrow(/\.every must be a finite number > 0/);
+  });
+
   it('treats an undefined entry as absent', () => {
     expect(() => compile({ delays: { ringing: undefined } })).not.toThrow();
   });
@@ -134,5 +140,26 @@ describe('FsmDelays dynamic resolution', () => {
 
     scheduler.advance(100_000);
     expect(machine.context.pings).toBe(0);
+  });
+});
+
+describe('FsmDelays state names', () => {
+  it('arms delays for a state named __proto__', () => {
+    const machine = new Fsm({
+      name: 'proto-state',
+      initial: '__proto__',
+      context: {},
+      states: { ['__proto__']: {}, done: {} },
+      transitions: { ['__proto__']: { FINISH: { target: 'done' } } },
+    });
+    const scheduler = createStubScheduler();
+
+    new FsmDelays(machine, {
+      scheduler,
+      delays: { ['__proto__']: { after: 10, send: { type: 'FINISH' } } },
+    });
+    scheduler.advance(10);
+
+    expect(machine.state).toBe('done');
   });
 });

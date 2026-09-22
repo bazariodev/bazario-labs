@@ -1,32 +1,11 @@
-import { Fsm, type Logger } from '@bazariodev/fsm';
+import { Fsm } from '@bazariodev/fsm';
 import { vi } from 'vitest';
 
-import type { Scheduler } from '../types.js';
-
-export type State =
-  | 'idle'
-  | 'ringing'
-  | 'connected'
-  | 'reconnecting'
-  | 'failed';
-
-export type Event =
-  | { type: 'CALL' }
-  | { type: 'ANSWER' }
-  | { type: 'NO_ANSWER' }
-  | { type: 'PING' }
-  | { type: 'HANGUP' }
-  | { type: 'DROP' }
-  | { type: 'RETRY' }
-  | { type: 'RESET' };
-
-export type Context = { pings: number; attempts: number };
-
 export const createMachine = (
-  initial: State = 'idle',
-  context: Context = { pings: 0, attempts: 0 },
-): Fsm<State, Event, Context> =>
-  new Fsm<State, Event, Context>({
+  initial = 'idle',
+  context = { pings: 0, attempts: 0 },
+) =>
+  new Fsm({
     name: 'delays-test',
     initial,
     context,
@@ -63,39 +42,32 @@ export const createMachine = (
     },
   });
 
-export const createLogger = (): Logger => ({
+export const createLogger = () => ({
   debug: vi.fn(),
   warn: vi.fn(),
   error: vi.fn(),
 });
-
-type Timer = { at: number; cb: () => void; interval: number | null };
-
-export type StubScheduler = Scheduler & {
-  advance: (ms: number) => void;
-  pending: () => number;
-};
 
 /**
  * Deterministic in-memory clock. `advance(ms)` fires every due timer in time
  * order, re-scanning after each callback so a transition that arms or clears
  * timers mid-advance is reflected immediately.
  */
-export const createStubScheduler = (): StubScheduler => {
+export const createStubScheduler = () => {
   let now = 0;
   let nextId = 1;
-  const timers = new Map<number, Timer>();
+  const timers = new Map();
 
-  const arm = (cb: () => void, ms: number, interval: number | null): number => {
+  const arm = (cb, ms, interval) => {
     const id = nextId++;
     timers.set(id, { at: now + ms, cb, interval });
     return id;
   };
 
-  const advance = (ms: number): void => {
+  const advance = (ms) => {
     const target = now + ms;
     while (true) {
-      let dueId: number | null = null;
+      let dueId = null;
       let dueAt = Number.POSITIVE_INFINITY;
       for (const [id, timer] of timers) {
         if (timer.at <= target && timer.at < dueAt) {
@@ -105,7 +77,7 @@ export const createStubScheduler = (): StubScheduler => {
       }
       if (dueId === null) break;
 
-      const timer = timers.get(dueId) as Timer;
+      const timer = timers.get(dueId);
       now = timer.at;
       if (timer.interval === null) {
         timers.delete(dueId);
@@ -120,11 +92,11 @@ export const createStubScheduler = (): StubScheduler => {
   return {
     setTimeout: (cb, ms) => arm(cb, ms, null),
     clearTimeout: (handle) => {
-      timers.delete(handle as number);
+      timers.delete(handle);
     },
     setInterval: (cb, ms) => arm(cb, ms, ms),
     clearInterval: (handle) => {
-      timers.delete(handle as number);
+      timers.delete(handle);
     },
     advance,
     pending: () => timers.size,

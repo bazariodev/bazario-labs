@@ -1,15 +1,7 @@
 import { FsmEffects } from '@bazariodev/fsm-effects';
 import { describe, expect, it } from 'vitest';
-
-import { compileDelays } from '../compile-delays.js';
-import { FsmDelays } from '../fsm-delays.js';
-import {
-  type Context,
-  createMachine,
-  createStubScheduler,
-  type Event,
-  type State,
-} from './helpers.js';
+import { compileDelays, FsmDelays } from '../index.js';
+import { createMachine, createStubScheduler } from './helpers.js';
 
 describe('FsmDelays lifecycle', () => {
   it('runs wildcard delays on every entered state', () => {
@@ -49,9 +41,9 @@ describe('FsmDelays lifecycle', () => {
   it('composes with hand-written effects in a single FsmEffects', () => {
     const machine = createMachine('idle');
     const scheduler = createStubScheduler();
-    const log: string[] = [];
+    const log = [];
 
-    const delayEffects = compileDelays<State, Event, Context>({
+    const delayEffects = compileDelays({
       scheduler,
       delays: { ringing: { after: 1_000, send: { type: 'NO_ANSWER' } } },
     });

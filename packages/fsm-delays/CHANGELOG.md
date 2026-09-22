@@ -1,5 +1,27 @@
 # @bazariodev/fsm-delays
 
+## 1.1.0
+
+### Minor Changes
+
+- Simplify the delays module and move its implementation to plain JavaScript with a hand-written
+  public `index.d.ts`, shipped as matching ESM `.d.ts` and CommonJS `.d.cts` declarations. Export
+  names and timer behavior are unchanged.
+
+  - The `delays` map must be a plain object. Arrays, `Map`s, and class instances now throw
+    `fsm-delays: delays must be a plain object` (previously `delays must be an object`, and a `Map`
+    was accepted and silently armed nothing).
+  - A `null` or other falsy entry, or a spec that is a class instance, now throws
+    `must be a delay spec` instead of being ignored or accepted. Only `undefined` means "no delays for
+    this state".
+  - A static `after`/`every` that is not a valid number (for example the string `"100"`) now throws at
+    construction. Previously only numbers were checked, so such a delay silently never armed. Dynamic
+    resolvers that return an invalid value are still logged at `warn` and skipped.
+  - `compileDelays` returns a null-prototype effects map, so a state named `__proto__` works. Its
+    arrays are no longer frozen.
+  - `AfterSpec` and `EverySpec` declare `every?: never` and `after?: never`, so TypeScript rejects a
+    spec with both, matching the runtime check.
+
 ## 1.0.0
 
 ### Patch Changes

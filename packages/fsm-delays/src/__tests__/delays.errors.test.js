@@ -1,7 +1,7 @@
 import { Fsm } from '@bazariodev/fsm';
 import { describe, expect, it } from 'vitest';
 
-import { FsmDelays } from '../fsm-delays.js';
+import { FsmDelays } from '../index.js';
 import { createLogger, createMachine, createStubScheduler } from './helpers.js';
 
 describe('FsmDelays delayed-callback error containment', () => {
@@ -38,7 +38,7 @@ describe('FsmDelays delayed-callback error containment', () => {
 
   it('contains a machine error raised by the delayed api.send', () => {
     const boom = new Error('reducer-boom');
-    const machine = new Fsm<'a' | 'b', { type: 'GO' }, { n: number }>({
+    const machine = new Fsm({
       name: 'throwing-reducer',
       initial: 'a',
       context: { n: 0 },

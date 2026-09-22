@@ -121,7 +121,7 @@ There are two distinct moments, and they are contained differently:
 
 ## Validation
 
-Construction fails fast for: a `delays` map that is not an object; entries that are not a `DelaySpec` or array of them; specs missing `after`/`send`; specs without exactly one of `after`/`every`; static `after`/`every` that is negative or non-finite (`after >= 0`, `every > 0`). State-name membership is not validated (same rationale as the effects module — `TState | '*'` constrains keys at the type level).
+Construction fails fast for: a `delays` map that is not a plain object (prototype `Object.prototype` or `null`, so arrays, `Map`s and class instances are rejected); entries that are not a `DelaySpec` or array of them (a `null` entry is an error; only `undefined` means absent); specs missing `after`/`send`; specs without exactly one of `after`/`every`; static (non-function) `after`/`every` that is not a finite number in range (`after >= 0`, `every > 0`), including non-number values such as `"100"`. These shape checks stay in the JavaScript implementation even though the core dropped its own: a delay fails only inside a timer callback, where errors are logged rather than thrown, so a malformed spec would otherwise never fire and never surface as an exception. State-name membership is not validated (same rationale as the effects module — `TState | '*'` constrains keys at the type level).
 
 The injected `scheduler` shape is **not** validated at construction. It is a typed parameter with a global default, so a TypeScript caller cannot pass a malformed one; a pure-JavaScript caller who passes a bad scheduler gets a diagnosable runtime error when the timer is armed. This matches the effects module's stance of leaning on types rather than adding runtime surface.
 

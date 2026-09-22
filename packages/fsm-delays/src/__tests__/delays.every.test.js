@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { FsmDelays } from '../fsm-delays.js';
+import { FsmDelays } from '../index.js';
 import { createMachine, createStubScheduler } from './helpers.js';
 
 describe('FsmDelays every (repeating)', () => {
