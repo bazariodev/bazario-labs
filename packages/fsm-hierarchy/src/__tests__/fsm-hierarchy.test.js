@@ -1,34 +1,14 @@
-import type { Logger } from '@bazariodev/fsm';
 import { describe, expect, it, vi } from 'vitest';
-import { FsmHierarchy } from '../fsm-hierarchy.js';
+import { FsmHierarchy } from '../index.js';
 import { MESSAGES } from '../internal/messages.js';
-import type { HierarchyConfig } from '../types.js';
 
-type Event =
-  | { type: 'CONNECT' }
-  | { type: 'START' }
-  | { type: 'GO' }
-  | { type: 'MUTE' }
-  | { type: 'UNMUTE' }
-  | { type: 'PING' }
-  | { type: 'HANGUP' }
-  | { type: 'FAIL' }
-  | { type: 'SELF' };
-
-type RootContext = { hangups: number };
-type ChildContext = { pings: number };
-
-const createLogger = (): Logger => ({
+const createLogger = () => ({
   debug: vi.fn(),
   warn: vi.fn(),
   error: vi.fn(),
 });
 
-const createChildConfig = (
-  overrides: Partial<
-    HierarchyConfig<'active' | 'muted', Event, ChildContext>
-  > = {},
-): HierarchyConfig<'active' | 'muted', Event, ChildContext> => ({
+const createChildConfig = (overrides = {}) => ({
   name: 'connected-flow',
   initial: 'active',
   context: { pings: 0 },
@@ -57,15 +37,9 @@ const createChildConfig = (
 });
 
 const createRootConfig = (
-  childConfig: HierarchyConfig<
-    'active' | 'muted',
-    Event,
-    ChildContext
-  > = createChildConfig(),
-  overrides: Partial<
-    HierarchyConfig<'idle' | 'connected' | 'failed', Event, RootContext>
-  > = {},
-): HierarchyConfig<'idle' | 'connected' | 'failed', Event, RootContext> => ({
+  childConfig = createChildConfig(),
+  overrides = {},
+) => ({
   name: 'call-flow',
   initial: 'idle',
   context: { hangups: 0 },
@@ -96,7 +70,7 @@ const createRootConfig = (
 
 describe('FsmHierarchy', () => {
   it('accepts transition sources that are explicitly undefined', () => {
-    const hierarchy = new FsmHierarchy<Event>(
+    const hierarchy = new FsmHierarchy(
       createRootConfig(undefined, {
         transitions: {
           idle: { CONNECT: { target: 'connected' } },
@@ -111,8 +85,8 @@ describe('FsmHierarchy', () => {
   });
 
   it('spawns children after parent commits and composes snapshots', () => {
-    const spawned: string[] = [];
-    const hierarchy = new FsmHierarchy<Event>(createRootConfig(), {
+    const spawned = [];
+    const hierarchy = new FsmHierarchy(createRootConfig(), {
       onNodeSpawned: (node) => {
         spawned.push(node.path);
       },
@@ -150,8 +124,8 @@ describe('FsmHierarchy', () => {
 
   it('routes deepest-first, bubbles unhandled events, and disposes old children', () => {
     const cleanup = vi.fn();
-    let retainedChild: ReturnType<FsmHierarchy<Event>['nodeFor']> | undefined;
-    const hierarchy = new FsmHierarchy<Event>(createRootConfig(), {
+    let retainedChild;
+    const hierarchy = new FsmHierarchy(createRootConfig(), {
       onNodeSpawned: (node) => {
         if (node.path === 'connected.active') {
           retainedChild = node.handle;
@@ -180,8 +154,8 @@ describe('FsmHierarchy', () => {
   });
 
   it('notifies affected node handles root-to-leaf before hierarchy subscribers', () => {
-    const calls: string[] = [];
-    const hierarchy = new FsmHierarchy<Event>(createRootConfig(), {
+    const calls = [];
+    const hierarchy = new FsmHierarchy(createRootConfig(), {
       onNodeSpawned: (node) => {
         node.handle.subscribe((snapshot) => {
           calls.push(`node:${node.path}:${snapshot.value}:${snapshot.version}`);
@@ -204,13 +178,28 @@ describe('FsmHierarchy', () => {
     ]);
   });
 
-  it('uses the captured composed snapshot when node subscribers send again', () => {
-    const hierarchy = new FsmHierarchy<Event>(createRootConfig());
-    const hierarchyCalls: Array<{
-      path: string;
-      treeVersion: number;
-      pings: number;
-    }> = [];
+  it('never delivers an older node snapshot after a newer one to later subscribers', () => {
+    const hierarchy = new FsmHierarchy(createRootConfig());
+    const seen = [];
+
+    hierarchy.send({ type: 'CONNECT' });
+    const node = hierarchy.nodeFor('connected.active');
+    node?.subscribe((snapshot) => {
+      if (snapshot.value === 'muted' && snapshot.version === 1) {
+        hierarchy.send({ type: 'PING' });
+      }
+    });
+    node?.subscribe((snapshot) => seen.push(snapshot.version));
+
+    hierarchy.send({ type: 'MUTE' });
+
+    expect(seen).toEqual([2]);
+    expect(node?.snapshot.version).toBe(2);
+  });
+
+  it('never delivers an older snapshot after a newer one when node subscribers send again', () => {
+    const hierarchy = new FsmHierarchy(createRootConfig());
+    const hierarchyCalls = [];
 
     hierarchy.send({ type: 'CONNECT' });
     hierarchy.nodeFor('connected.active')?.subscribe((snapshot) => {
@@ -222,17 +211,15 @@ describe('FsmHierarchy', () => {
       hierarchyCalls.push({
         path: snapshot.path,
         treeVersion: snapshot.treeVersion,
-        pings:
-          (snapshot.root.child?.context as ChildContext | undefined)?.pings ??
-          0,
+        pings: snapshot.root.child?.context?.pings ?? 0,
       });
     });
 
     hierarchy.send({ type: 'MUTE' });
 
+    // The nested PING publishes treeVersion 3 first; the outer treeVersion 2 is skipped.
     expect(hierarchyCalls).toEqual([
       { path: 'connected.muted', treeVersion: 3, pings: 1 },
-      { path: 'connected.muted', treeVersion: 2, pings: 0 },
     ]);
     expect(hierarchy.snapshot).toMatchObject({
       path: 'connected.muted',
@@ -246,10 +233,10 @@ describe('FsmHierarchy', () => {
   });
 
   it('allows subscribe during spawn but rejects synchronous send during reconciliation', () => {
-    const calls: string[] = [];
-    let canWhileSpawning: boolean | undefined;
-    let sendWhileSpawningError: unknown;
-    const hierarchy = new FsmHierarchy<Event>(createRootConfig(), {
+    const calls = [];
+    let canWhileSpawning;
+    let sendWhileSpawningError;
+    const hierarchy = new FsmHierarchy(createRootConfig(), {
       onNodeSpawned: (node) => {
         if (node.path !== 'connected.active') return;
 
@@ -279,24 +266,24 @@ describe('FsmHierarchy', () => {
   it('rejects hierarchy sends during reconciliation so a new child cannot clobber the active spine', () => {
     const cleanupA = vi.fn();
     const cleanupB = vi.fn();
-    let hierarchy!: FsmHierarchy<Event>;
-    const rejected: string[] = [];
+    let hierarchy;
+    const rejected = [];
 
-    const childA: HierarchyConfig<'a0', Event, object> = {
+    const childA = {
       name: 'child-a',
       initial: 'a0',
       context: {},
       states: { a0: {} },
       transitions: { a0: {}, '*': {} },
     };
-    const childB: HierarchyConfig<'b0', Event, object> = {
+    const childB = {
       name: 'child-b',
       initial: 'b0',
       context: {},
       states: { b0: {} },
       transitions: { b0: {}, '*': {} },
     };
-    const root: HierarchyConfig<'idle' | 'A' | 'B', Event, object> = {
+    const root = {
       name: 'root',
       initial: 'idle',
       context: {},
@@ -310,7 +297,7 @@ describe('FsmHierarchy', () => {
       children: { A: childA, B: childB },
     };
 
-    hierarchy = new FsmHierarchy<Event>(root, {
+    hierarchy = new FsmHierarchy(root, {
       onNodeSpawned: (node) => {
         if (node.path === 'A.a0') {
           expect(() => hierarchy.send({ type: 'GO' })).toThrow(
@@ -340,8 +327,8 @@ describe('FsmHierarchy', () => {
   });
 
   it('rejects hierarchy sends from child initial onEnter during reconciliation', () => {
-    let hierarchy!: FsmHierarchy<Event>;
-    const childA: HierarchyConfig<'a0', Event, object> = {
+    let hierarchy;
+    const childA = {
       name: 'child-a',
       initial: 'a0',
       context: {},
@@ -352,14 +339,14 @@ describe('FsmHierarchy', () => {
       },
       transitions: { a0: {}, '*': {} },
     };
-    const childB: HierarchyConfig<'b0', Event, object> = {
+    const childB = {
       name: 'child-b',
       initial: 'b0',
       context: {},
       states: { b0: {} },
       transitions: { b0: {}, '*': {} },
     };
-    const root: HierarchyConfig<'idle' | 'A' | 'B', Event, object> = {
+    const root = {
       name: 'root',
       initial: 'idle',
       context: {},
@@ -373,7 +360,7 @@ describe('FsmHierarchy', () => {
       children: { A: childA, B: childB },
     };
 
-    hierarchy = new FsmHierarchy<Event>(root);
+    hierarchy = new FsmHierarchy(root);
 
     expect(() => hierarchy.send({ type: 'START' })).toThrow(
       MESSAGES.sendWhileReconciling,
@@ -384,17 +371,14 @@ describe('FsmHierarchy', () => {
   });
 
   it('bumps treeVersion and notifies on non-structural transitions', () => {
-    const snapshots: Array<{ path: string; version: number; pings: number }> =
-      [];
-    const hierarchy = new FsmHierarchy<Event>(createRootConfig());
+    const snapshots = [];
+    const hierarchy = new FsmHierarchy(createRootConfig());
 
     hierarchy.subscribe((snapshot) => {
       snapshots.push({
         path: snapshot.path,
         version: snapshot.treeVersion,
-        pings:
-          (snapshot.root.child?.context as ChildContext | undefined)?.pings ??
-          0,
+        pings: snapshot.root.child?.context?.pings ?? 0,
       });
     });
 
@@ -408,7 +392,7 @@ describe('FsmHierarchy', () => {
   });
 
   it('re-entering a compound state resets its child to the child initial', () => {
-    const hierarchy = new FsmHierarchy<Event>(
+    const hierarchy = new FsmHierarchy(
       createRootConfig(createChildConfig(), {
         transitions: {
           idle: {
@@ -444,7 +428,7 @@ describe('FsmHierarchy', () => {
   });
 
   it('a live child handle can bubble to a parent that disposes that same child subtree', () => {
-    const hierarchy = new FsmHierarchy<Event>(createRootConfig());
+    const hierarchy = new FsmHierarchy(createRootConfig());
 
     hierarchy.send({ type: 'CONNECT' });
     const childHandle = hierarchy.nodeFor('connected.active');
@@ -460,40 +444,108 @@ describe('FsmHierarchy', () => {
     expect(hierarchy.snapshot.path).toBe('failed');
   });
 
+  it('rejects invalid state definitions in inactive children at construction', () => {
+    const withState = (states) =>
+      createRootConfig(
+        createChildConfig({ states: { active: {}, muted: {}, ...states } }),
+      );
+
+    expect(() => new FsmHierarchy(withState({ later: null }))).toThrow(
+      MESSAGES.stateDefinitionsObject,
+    );
+    expect(
+      () => new FsmHierarchy(withState({ muted: { onEnter: 42 } })),
+    ).toThrow(MESSAGES.stateHookNotFunction('muted', 'onEnter'));
+  });
+
+  it('rejects empty state names, which would vanish from paths', () => {
+    const root = {
+      name: 'root',
+      initial: '',
+      context: {},
+      states: { '': {} },
+      transitions: {},
+    };
+    const child = createChildConfig({
+      states: { active: {}, muted: {}, '': {} },
+    });
+
+    expect(() => new FsmHierarchy(root)).toThrow(MESSAGES.stateNameEmpty);
+    expect(() => new FsmHierarchy(createRootConfig(child))).toThrow(
+      MESSAGES.stateNameEmpty,
+    );
+  });
+
+  it('rejects a non-string initial state in an inactive child', () => {
+    const child = createChildConfig({ initial: 0, states: { 0: {} } });
+
+    expect(() => new FsmHierarchy(createRootConfig(child))).toThrow(
+      MESSAGES.initialStateString,
+    );
+  });
+
+  it('rejects graph containers that are not plain objects', () => {
+    const child = createChildConfig();
+
+    expect(
+      () =>
+        new FsmHierarchy(
+          createRootConfig(child, {
+            children: new Map([['connected', child]]),
+          }),
+        ),
+    ).toThrow(MESSAGES.childrenNotObject);
+    expect(
+      () => new FsmHierarchy(createRootConfig(child, { transitions: [] })),
+    ).toThrow(MESSAGES.transitionsNotObject);
+    expect(
+      () => new FsmHierarchy(createRootConfig(child, { states: new Map() })),
+    ).toThrow(MESSAGES.statesNotObject);
+    expect(
+      () => new FsmHierarchy(createRootConfig(child, { children: new Date() })),
+    ).toThrow(MESSAGES.childrenNotObject);
+    expect(
+      () =>
+        new FsmHierarchy(createRootConfig(child, { transitions: new Date() })),
+    ).toThrow(MESSAGES.transitionsNotObject);
+    expect(
+      () =>
+        new FsmHierarchy(
+          createRootConfig(child, { transitions: { idle: [] } }),
+        ),
+    ).toThrow(MESSAGES.transitionSourceEventMap);
+  });
+
   it('validates path and child config shape eagerly', () => {
     expect(
       () =>
-        new FsmHierarchy<Event>(
+        new FsmHierarchy(
           createRootConfig(createChildConfig(), {
             children: {
               missing: createChildConfig(),
-            } as unknown as HierarchyConfig<
-              'idle' | 'connected' | 'failed',
-              Event,
-              RootContext
-            >['children'],
+            },
           }),
         ),
     ).toThrow(MESSAGES.childKeyMissing);
 
     expect(
       () =>
-        new FsmHierarchy<Event>({
+        new FsmHierarchy({
           ...createRootConfig(),
           states: {
             idle: {},
             'bad.name': {},
             failed: {},
           },
-        } as unknown as HierarchyConfig<string, Event, RootContext>),
+        }),
     ).toThrow(MESSAGES.stateNamesNoDot);
 
     expect(
       () =>
-        new FsmHierarchy<Event>(
+        new FsmHierarchy(
           createRootConfig(
             createChildConfig({
-              initial: 'missing' as 'active',
+              initial: 'missing',
             }),
           ),
         ),
@@ -501,7 +553,7 @@ describe('FsmHierarchy', () => {
 
     expect(
       () =>
-        new FsmHierarchy<Event>(
+        new FsmHierarchy(
           createRootConfig(
             createChildConfig({
               transitions: {
@@ -510,45 +562,35 @@ describe('FsmHierarchy', () => {
                 },
                 muted: {},
                 '*': {},
-              } as unknown as HierarchyConfig<
-                'active' | 'muted',
-                Event,
-                ChildContext
-              >['transitions'],
+              },
             }),
           ),
         ),
     ).toThrow(MESSAGES.transitionTargetMissing);
   });
 
-  it('ignores inherited child entries during reconciliation', () => {
-    const cleanup = vi.fn();
+  it('rejects children with a custom prototype and ignores inherited keys', () => {
+    const config = (children) => ({
+      name: 'root',
+      initial: 'idle',
+      context: {},
+      states: { idle: {}, toString: {} },
+      transitions: { idle: { GO: { target: 'toString' } } },
+      children,
+    });
     const inheritedChildren = Object.create({
-      toString: {
-        ...createChildConfig(),
-        initial: 'active',
-      },
-    }) as HierarchyConfig<'idle' | 'toString', Event, object>['children'];
-    const hierarchy = new FsmHierarchy<Event>(
-      {
-        name: 'root',
-        initial: 'idle',
-        context: {},
-        states: {
-          idle: {},
-          toString: {},
-        },
-        transitions: {
-          idle: { GO: { target: 'toString' } },
-          toString: {},
-          '*': {},
-        },
-        children: inheritedChildren,
-      },
-      {
-        onNodeSpawned: () => cleanup,
-      },
+      toString: { ...createChildConfig(), initial: 'active' },
+    });
+
+    expect(() => new FsmHierarchy(config(inheritedChildren))).toThrow(
+      MESSAGES.childrenNotObject,
     );
+
+    // Object.prototype.toString is inherited, never read as a child config.
+    const cleanup = vi.fn();
+    const hierarchy = new FsmHierarchy(config({}), {
+      onNodeSpawned: () => cleanup,
+    });
 
     expect(() => hierarchy.send({ type: 'GO' })).not.toThrow();
     expect(hierarchy.snapshot.path).toBe('toString');
@@ -559,7 +601,7 @@ describe('FsmHierarchy', () => {
   it('rethrows child construction failures from the triggering send', () => {
     const logger = createLogger();
     const boom = new Error('child initial failed');
-    const hierarchy = new FsmHierarchy<Event>(
+    const hierarchy = new FsmHierarchy(
       createRootConfig(
         createChildConfig({
           states: {
@@ -586,7 +628,7 @@ describe('FsmHierarchy', () => {
   it('contains onNodeSpawned callback failures and keeps the spawned node active', () => {
     const logger = createLogger();
     const boom = new Error('spawn failed');
-    const hierarchy = new FsmHierarchy<Event>(createRootConfig(), {
+    const hierarchy = new FsmHierarchy(createRootConfig(), {
       logger,
       onNodeSpawned: (node) => {
         if (node.path === 'connected.active') throw boom;
@@ -604,9 +646,9 @@ describe('FsmHierarchy', () => {
   });
 
   it('stops deepest-first with best-effort cleanups', () => {
-    const calls: string[] = [];
+    const calls = [];
     const logger = createLogger();
-    const hierarchy = new FsmHierarchy<Event>(createRootConfig(), {
+    const hierarchy = new FsmHierarchy(createRootConfig(), {
       logger,
       onNodeSpawned: (node) => {
         node.handle.subscribe(() => calls.push(`subscriber:${node.path}`));
@@ -633,20 +675,20 @@ describe('FsmHierarchy', () => {
   });
 
   it('does not spawn a new child if stop is called from cleanup during reconciliation', () => {
-    let hierarchy!: FsmHierarchy<Event>;
+    let hierarchy;
     const cleanupA = vi.fn(() => hierarchy.stop());
     const cleanupB = vi.fn();
     const spawnedB = vi.fn();
-    const notifications: string[] = [];
+    const notifications = [];
 
-    const childA: HierarchyConfig<'a0', Event, object> = {
+    const childA = {
       name: 'child-a',
       initial: 'a0',
       context: {},
       states: { a0: {} },
       transitions: { a0: {}, '*': {} },
     };
-    const childB: HierarchyConfig<'b0', Event, object> = {
+    const childB = {
       name: 'child-b',
       initial: 'b0',
       context: {},
@@ -654,7 +696,7 @@ describe('FsmHierarchy', () => {
       transitions: { b0: {}, '*': {} },
     };
 
-    hierarchy = new FsmHierarchy<Event>(
+    hierarchy = new FsmHierarchy(
       {
         name: 'root',
         initial: 'idle',

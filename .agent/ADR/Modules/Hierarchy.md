@@ -102,8 +102,9 @@ Rules (draft):
 - the active **path** is `snapshot.path`
 - each node snapshot's `path` is the dotted path from the root to that node
 - `matches(path)` returns true when `path` is a whole-segment prefix of (or equal to) the active path — `matches('connected')` is true while in `connected.muted`, but not while in `connectedness`
-- hierarchy configs reject state names containing `.` so dotted paths are unambiguous; `*` remains reserved by the core
+- hierarchy configs reject empty state names and state names containing `.` so each state is exactly one path segment and dotted paths are unambiguous; `*` remains reserved by the core
 - every own `children` key must be a declared state of its node; unknown keys fail fast at construction, inherited/prototype keys are ignored, and inactive child configs are validated eagerly without constructing their machines
+- tree validation covers the state graph (names, `.`, `*`, a string initial state, child keys, transition sources and targets, empty transition entries) plus every structural check whose absence would either break a later spawn — which stops the whole hierarchy — or silently disable behavior: state definitions and child configs are objects, `onEnter`/`onLeave` are functions, and `states`, `transitions`, `children`, and event maps are plain objects (prototype `Object.prototype` or `null`), so arrays, `Map`s, `Date`s, and objects with a custom prototype are rejected. Guard and reducer types are not checked, because a bad one throws from the send that uses it without stopping the tree
 - hierarchy validation also rejects empty/whitespace names at the loose composition boundary; this is intentionally stricter than the current flat core and prevents anonymous nodes in composed diagnostics
 - a child is spawned only after its parent has committed entry into the owning state
 - a child is disposed only after its parent has committed leaving the owning state
@@ -144,13 +145,9 @@ type RuntimeNode = {
 };
 ```
 
-Keep the implementation split by the few real responsibilities, with dependencies wired in the `FsmHierarchy` constructor rather than exposed as public API:
+The runtime is one `FsmHierarchy` class with private methods for routing, reconciliation, node spawn/dispose and handles, and snapshot/notification. An earlier split into `NodeLifecycle`, `ActiveSpine`, and `HierarchyNotifier` classes was folded back in: they shared all their state through six injected callbacks, so the split added wiring without separating anything. Config validation stays as a small pure module.
 
-- `FsmHierarchy` owns the public API, event bubbling, the reconciliation no-send gate, and the reconciliation loop.
-- `NodeLifecycle` owns constructing/disposing `RuntimeNode`s and building routed node handles.
-- `ActiveSpine` owns the root pointer, active path registry, spine/leaf traversal, `treeVersion`, and composed snapshot construction.
-- `HierarchyNotifier` owns hierarchy subscribers and the fixed notification order.
-- config validation stays as a small pure module.
+Because any send during reconciliation throws, reconciliation cannot nest; the no-send gate is a plain flag rather than a saved-and-restored one.
 
 Reconciliation walks that chain from the changed node downward:
 
@@ -175,6 +172,7 @@ Routing and reconciliation are synchronous. v1 keeps re-entrancy small by making
 - **No synchronous send during reconciliation.** While hierarchy reconciliation is running, any `send` through `hierarchy.send()` or any node handle throws `fsm-hierarchy: cannot send while reconciliation is in progress`, and `can` returns `false`. This covers both `onNodeSpawned` and a child initial `onEnter` during construction. It prevents a half-built child from mutating an ancestor before the outer reconciliation has linked the child.
 - **Subscribe is still allowed during spawn.** While `onNodeSpawned` is running for a node, that node's handle accepts `subscribe()` because `FsmEffects` attaches that way; it registers normally and receives the node's version-0 birth snapshot after reconciliation completes. This is a hierarchy-handle delta from raw `FsmCore`, whose `subscribe()` has no replay.
 - **Reconciliation is idempotent.** It makes the active spine match the current committed states. If a routed send happens from a later subscriber/effect, that send runs its own `raw send -> reconcile -> notify` cycle; when the outer work resumes it re-reads committed state and does nothing if the spine is already consistent.
+- **Ordered delivery, per source.** A subscriber's nested send publishes its snapshots synchronously, inside the outer notification pass. Each node records the version it last published, and the tree records the last published `treeVersion`; the outer pass skips any snapshot older than that. No node handle and no hierarchy subscriber receives an older snapshot after a newer one, and a node affected only by the outer commit is still delivered. Notifications are not queued, because `fsm-effects` on a node handle relies on a nested send being delivered synchronously to stop the rest of that state's effects.
 - **A disposed node's handle is inert.** After disposal, `send` no-ops, `can` returns `false`, `snapshot` returns the last committed value, existing local subscribers are cleared, and `subscribe()` returns a no-op unsubscribe without registering anything. This matches the effects module's guarded-send behavior while preventing retained dead handles from doing work.
 
 `send` **throws** while reconciling but **no-ops** while disposed on purpose: sending through a half-built spine is a programming error worth surfacing, whereas a retained handle firing after its node is gone (e.g. a late timer or cleanup) is expected and should be ignored, not raised.

@@ -1,6 +1,6 @@
 {
   "name": "@bazariodev/fsm-hierarchy",
-  "version": "1.0.1",
+  "version": "1.1.0",
   "description": "Hierarchical composition layer for @bazariodev/fsm with post-commit child reconciliation and bubbling event routing.",
   "license": "MIT",
   "author": "Bazario",
@@ -30,9 +30,14 @@
   "types": "./dist/index.d.ts",
   "exports": {
     ".": {
-      "types": "./dist/index.d.ts",
-      "import": "./dist/index.js",
-      "require": "./dist/index.cjs"
+      "import": {
+        "types": "./dist/index.d.ts",
+        "default": "./dist/index.js"
+      },
+      "require": {
+        "types": "./dist/index.d.cts",
+        "default": "./dist/index.cjs"
+      }
     }
   },
   "files": [

@@ -3,8 +3,9 @@
   "compilerOptions": {
     "outDir": "./dist",
     "rootDir": "./src",
-    "lib": ["ES2022", "ESNext.Disposable", "DOM"]
+    "skipLibCheck": false,
+    "types": []
   },
-  "include": ["src/**/*"],
+  "include": ["src/**/*.ts"],
   "exclude": ["dist", "node_modules"]
 }
