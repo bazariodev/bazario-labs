@@ -48,7 +48,7 @@ commits.stop();
 effects.stop();
 ```
 
-`instrumentFsmConfig` is a pure transform. It returns a new config object and never mutates the input. Apply it before constructing the machine.
+`instrumentFsmConfig` is a pure transform. It returns a new config object and never mutates the input. Apply it before constructing the machine. It wraps only the transition hooks and each state's `onEnter`, calling the originals with the receiver the core passes, so a config the core would reject still fails the same way, and the `init` entry names the state the machine actually starts in, even when `initial` changes after instrumentation (for example through `restoreFsmConfig`).
 
 Transitions are traced as a start/complete pair:
 
@@ -68,7 +68,7 @@ import type { FsmSubscribable } from '@bazariodev/fsm';
 
 The shared core shape is a stable `snapshot` accessor plus `subscribe(listener)`, where the listener may receive the committed snapshot.
 
-It records the attach-time snapshot, then one `commit` entry per delivered snapshot. If a source delivers no subscriber payload, `recordSource` falls back to reading `source.snapshot`. Payload-delivered and fallback snapshots are deduped by reference, so hierarchy node birth snapshots are recorded once.
+It records the attach-time snapshot, then one `commit` entry per delivered snapshot. If a source calls the listener without a payload (or with `undefined`), `recordSource` reads `source.snapshot` instead. Payload-delivered and fallback snapshots are deduped by reference, so hierarchy node birth snapshots are recorded once.
 
 Commit labels are derived from the mapped snapshot, so `mapSnapshot` redaction applies before the default `value` / `path` label or a custom `label` callback runs.
 
@@ -80,15 +80,15 @@ import { mermaidFromFsmConfig } from '@bazariodev/fsm-inspect';
 const diagram = mermaidFromFsmConfig(callConfig);
 ```
 
-The renderers generate `stateDiagram-v2` text from validated configs. Wildcard transitions render as notes by default:
+The renderers generate `stateDiagram-v2` text from configs and throw when a diagram references an undeclared state. Wildcard transitions render as notes by default:
 
 ```ts
 mermaidFromFsmConfig(callConfig, { wildcard: 'note' });
 ```
 
-Use `wildcard: 'expand'` to draw wildcard transitions from every state instead.
+Use `wildcard: 'expand'` to draw wildcard transitions as edges instead, from every state without its own entry for that event.
 
-Hierarchy diagrams path-scope every Mermaid id so repeated state names in nested machines do not collide.
+Every Mermaid id is derived from the state's dotted path, so repeated state names in nested machines do not collide.
 
 ## Redaction
 
