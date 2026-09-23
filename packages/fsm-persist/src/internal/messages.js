@@ -1,5 +1,6 @@
 const PREFIX = 'fsm-persist';
 
+/** Centralized diagnostic strings. Tests assert the literals against these. */
 export const MESSAGES = {
   invalidSource: `${PREFIX}: source must expose subscribe(listener)`,
   invalidToState: `${PREFIX}: toState must be a function`,
@@ -20,4 +21,4 @@ export const MESSAGES = {
   wrongKind: `${PREFIX}: record kind mismatch`,
   unknownState: `${PREFIX}: record state is not declared in config`,
   partialHierarchyRestore: `${PREFIX}: hierarchy record restored partially`,
-} as const;
+};

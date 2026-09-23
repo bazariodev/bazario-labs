@@ -1,14 +1,10 @@
-import { Fsm, type FsmConfig, type Logger } from '@bazariodev/fsm';
-import { FsmHierarchy, type HierarchyConfig } from '@bazariodev/fsm-hierarchy';
-import { describe, expect, expectTypeOf, it, vi } from 'vitest';
+import { Fsm } from '@bazariodev/fsm';
+import { FsmHierarchy } from '@bazariodev/fsm-hierarchy';
+import { describe, expect, it, vi } from 'vitest';
 
 import {
   FsmPersist,
-  type HierarchyConfigLike,
-  type HierarchySnapshotLike,
   loadRecord,
-  type PersistRecord,
-  type PersistStorage,
   persistFsm,
   persistHierarchy,
   restoreFsmConfig,
@@ -16,50 +12,28 @@ import {
 } from '../index.js';
 import { MESSAGES } from '../internal/messages.js';
 
-type CallState = 'idle' | 'dialing' | 'connected' | 'ended';
-type CallEvent =
-  | { type: 'DIAL'; destination: string }
-  | { type: 'CONNECT' }
-  | { type: 'HANGUP' };
-type CallContext = { attempts: number; destination: string | null };
-
-type HierarchyEvent =
-  | { type: 'CONNECT' }
-  | { type: 'MUTE' }
-  | { type: 'UNMUTE' }
-  | { type: 'PING' };
-type RootContext = { calls: number };
-type ChildContext = { pings: number };
-
-class MemoryStorage implements PersistStorage {
-  readonly values = new Map<string, string>();
-  readonly getItem = vi.fn((key: string) => this.values.get(key) ?? null);
-  readonly setItem = vi.fn((key: string, value: string) => {
+class MemoryStorage {
+  values = new Map();
+  getItem = vi.fn((key) => this.values.get(key) ?? null);
+  setItem = vi.fn((key, value) => {
     this.values.set(key, value);
   });
-  readonly removeItem = vi.fn((key: string) => {
+  removeItem = vi.fn((key) => {
     this.values.delete(key);
   });
 }
 
-const createLogger = (): Logger => ({
+const createLogger = () => ({
   debug: vi.fn(),
   warn: vi.fn(),
   error: vi.fn(),
 });
 
-const createCallConfig = (
-  overrides: Partial<FsmConfig<CallState, CallEvent, CallContext>> = {},
-): FsmConfig<CallState, CallEvent, CallContext> => ({
+const createCallConfig = (overrides = {}) => ({
   name: 'call',
   initial: 'idle',
   context: { attempts: 0, destination: null },
-  states: {
-    idle: overrides.states?.idle ?? {},
-    dialing: overrides.states?.dialing ?? {},
-    connected: overrides.states?.connected ?? {},
-    ended: overrides.states?.ended ?? {},
-  },
+  states: { idle: {}, dialing: {}, connected: {}, ended: {} },
   transitions: {
     idle: {
       DIAL: {
@@ -83,18 +57,11 @@ const createCallConfig = (
   ...overrides,
 });
 
-const createChildConfig = (
-  overrides: Partial<
-    HierarchyConfig<'active' | 'muted', HierarchyEvent, ChildContext>
-  > = {},
-): HierarchyConfig<'active' | 'muted', HierarchyEvent, ChildContext> => ({
+const createChildConfig = (overrides = {}) => ({
   name: 'connected-flow',
   initial: 'active',
   context: { pings: 0 },
-  states: {
-    active: overrides.states?.active ?? {},
-    muted: overrides.states?.muted ?? {},
-  },
+  states: { active: {}, muted: {} },
   transitions: {
     active: {
       MUTE: { target: 'muted' },
@@ -117,17 +84,12 @@ const createChildConfig = (
 
 const createRootConfig = (
   childConfig = createChildConfig(),
-  overrides: Partial<
-    HierarchyConfig<'idle' | 'connected', HierarchyEvent, RootContext>
-  > = {},
-): HierarchyConfig<'idle' | 'connected', HierarchyEvent, RootContext> => ({
+  overrides = {},
+) => ({
   name: 'call-tree',
   initial: 'idle',
   context: { calls: 0 },
-  states: {
-    idle: overrides.states?.idle ?? {},
-    connected: overrides.states?.connected ?? {},
-  },
+  states: { idle: {}, connected: {} },
   transitions: {
     idle: {
       CONNECT: {
@@ -144,8 +106,8 @@ const createRootConfig = (
   ...overrides,
 });
 
-const readRecord = (storage: MemoryStorage, key = 'call'): PersistRecord =>
-  JSON.parse(storage.values.get(key) ?? 'null') as PersistRecord;
+const readRecord = (storage, key = 'call') =>
+  JSON.parse(storage.values.get(key) ?? 'null');
 
 describe('FsmPersist writer', () => {
   it('writes the initial snapshot and every committed transition', () => {
@@ -198,12 +160,11 @@ describe('FsmPersist writer', () => {
   });
 
   it('reads source.snapshot on notification and dedupes snapshot references', () => {
-    type Snapshot = Readonly<{ value: string; context: unknown }>;
     const storage = new MemoryStorage();
     const source = {
-      snapshot: Object.freeze({ value: 'a', context: {} }) as Snapshot,
-      listener: null as (() => void) | null,
-      subscribe(listener: () => void) {
+      snapshot: Object.freeze({ value: 'a', context: {} }),
+      listener: null,
+      subscribe(listener) {
         this.listener = listener;
         return () => {
           this.listener = null;
@@ -259,12 +220,8 @@ describe('FsmPersist writer', () => {
   it('contains cyclic hierarchy snapshot writes', () => {
     const storage = new MemoryStorage();
     const logger = createLogger();
-    type MutableHierarchyNode = {
-      value: string;
-      context: unknown;
-      child: MutableHierarchyNode | null;
-    };
-    const node: MutableHierarchyNode = {
+
+    const node = {
       value: 'connected',
       context: {},
       child: null,
@@ -288,6 +245,42 @@ describe('FsmPersist writer', () => {
     expect(logger.error).toHaveBeenCalledWith(
       MESSAGES.writeFailed,
       expect.objectContaining({ error: expect.any(Error) }),
+    );
+  });
+
+  it('contains endless acyclic hierarchy snapshot writes', () => {
+    const storage = new MemoryStorage();
+    const logger = createLogger();
+    // Every read of `child` returns a fresh node, so no node ever repeats.
+    const createNode = () => ({
+      value: 'connected',
+      context: {},
+      get child() {
+        return createNode();
+      },
+    });
+
+    persistHierarchy(
+      {
+        snapshot: { root: createNode() },
+        subscribe: () => () => undefined,
+      },
+      {
+        storage,
+        key: 'tree',
+        name: 'call-tree',
+        logger,
+      },
+    );
+
+    expect(storage.setItem).not.toHaveBeenCalled();
+    expect(logger.error).toHaveBeenCalledWith(
+      MESSAGES.writeFailed,
+      expect.objectContaining({
+        error: expect.objectContaining({
+          message: 'hierarchy snapshot exceeds maximum persisted depth',
+        }),
+      }),
     );
   });
 
@@ -348,19 +341,22 @@ describe('FsmPersist writer', () => {
     );
   });
 
-  it('stops without removing and clears without stopping', () => {
+  it('clears without stopping and stops without removing', () => {
     const storage = new MemoryStorage();
     const machine = new Fsm(createCallConfig());
     const persist = persistFsm(machine, { storage, key: 'call', name: 'call' });
 
-    persist.stop();
-    persist.stop();
-    machine.send({ type: 'DIAL', destination: '101' });
-    expect(readRecord(storage).state).toMatchObject({ value: 'idle' });
-
     persist.clear();
     persist.clear();
     expect(storage.values.has('call')).toBe(false);
+
+    machine.send({ type: 'DIAL', destination: '101' });
+    expect(readRecord(storage).state).toMatchObject({ value: 'dialing' });
+
+    persist.stop();
+    persist.stop();
+    machine.send({ type: 'CONNECT' });
+    expect(readRecord(storage).state).toMatchObject({ value: 'dialing' });
   });
 
   it('rejects malformed constructor inputs', () => {
@@ -370,7 +366,7 @@ describe('FsmPersist writer', () => {
     expect(
       () =>
         new FsmPersist(
-          { snapshot: machine.snapshot } as unknown as typeof machine,
+          { snapshot: machine.snapshot },
           () => ({ kind: 'fsm', value: 'idle', context: {} }),
           { storage, key: 'call', name: 'call' },
         ),
@@ -378,7 +374,7 @@ describe('FsmPersist writer', () => {
 
     expect(
       () =>
-        new FsmPersist(machine, undefined as unknown as () => never, {
+        new FsmPersist(machine, undefined, {
           storage,
           key: 'call',
           name: 'call',
@@ -600,12 +596,66 @@ describe('flat restore', () => {
     );
   });
 
+  it('keeps the envelope values it validated when getters change between reads', () => {
+    const storage = new MemoryStorage();
+    storage.setItem('call', 'custom');
+    // Answers the first read with `valid` and every later read with `later`.
+    const firstRead = (valid, later) => {
+      let read = false;
+      return () => {
+        const result = read ? later : valid;
+        read = true;
+        return result;
+      };
+    };
+    const unusableKey = {
+      toString() {
+        throw new Error('not a property key');
+      },
+    };
+    const deserialize = () => {
+      const at = firstRead(0, Symbol('at'));
+      const value = firstRead('dialing', unusableKey);
+      return {
+        format: 1,
+        name: 'call',
+        get at() {
+          return at();
+        },
+        state: {
+          kind: 'fsm',
+          get value() {
+            return value();
+          },
+          context: { attempts: 1, destination: '101' },
+        },
+      };
+    };
+    const options = {
+      storage,
+      key: 'call',
+      name: 'call',
+      deserialize,
+      maxAgeMs: 100,
+      now: () => 50,
+    };
+
+    expect(loadRecord(options)).toMatchObject({
+      at: 0,
+      state: { kind: 'fsm', value: 'dialing' },
+    });
+    expect(restoreFsmConfig(createCallConfig(), options)).toMatchObject({
+      restored: true,
+      config: { initial: 'dialing' },
+    });
+  });
+
   it('roundtrips custom serialization for non-JSON-safe context', () => {
     const storage = new MemoryStorage();
     const config = createCallConfig();
     const value = new Map([['attempts', 5]]);
 
-    persistFsm(new Fsm(createCallConfig({ context: value as never })), {
+    persistFsm(new Fsm(createCallConfig({ context: value })), {
       storage,
       key: 'call',
       name: 'call',
@@ -616,9 +666,7 @@ describe('flat restore', () => {
             record.state.kind === 'fsm'
               ? {
                   ...record.state,
-                  context: [
-                    ...(record.state.context as Map<string, number>).entries(),
-                  ],
+                  context: [...record.state.context.entries()],
                 }
               : record.state,
         }),
@@ -628,14 +676,14 @@ describe('flat restore', () => {
       storage,
       key: 'call',
       deserialize: (raw) => {
-        const record = JSON.parse(raw) as PersistRecord;
+        const record = JSON.parse(raw);
         return {
           ...record,
           state:
             record.state.kind === 'fsm'
               ? {
                   ...record.state,
-                  context: new Map(record.state.context as [string, number][]),
+                  context: new Map(record.state.context),
                 }
               : record.state,
         };
@@ -649,7 +697,7 @@ describe('flat restore', () => {
 describe('hierarchy restore', () => {
   it('roundtrips a deep active spine', () => {
     const storage = new MemoryStorage();
-    const hierarchy = new FsmHierarchy<HierarchyEvent>(createRootConfig());
+    const hierarchy = new FsmHierarchy(createRootConfig());
     persistHierarchy(hierarchy, {
       storage,
       key: 'tree',
@@ -664,7 +712,7 @@ describe('hierarchy restore', () => {
       storage,
       key: 'tree',
     });
-    const next = new FsmHierarchy<HierarchyEvent>(restored.config);
+    const next = new FsmHierarchy(restored.config);
 
     expect(restored).toMatchObject({
       restored: true,
@@ -707,21 +755,21 @@ describe('hierarchy restore', () => {
       initial: 'active',
       states: {
         active: {},
-        muted: undefined as never,
-      } as never,
+        muted: undefined,
+      },
     });
     const config = createRootConfig({
       ...renamedChild,
       states: { active: {} },
       transitions: { active: {}, '*': {} },
-    } as never);
+    });
 
     const restored = restoreHierarchyConfig(config, {
       storage,
       key: 'tree',
       logger,
     });
-    const hierarchy = new FsmHierarchy<HierarchyEvent>(restored.config);
+    const hierarchy = new FsmHierarchy(restored.config);
 
     expect(restored).toMatchObject({
       restored: true,
@@ -785,6 +833,42 @@ describe('hierarchy restore', () => {
     });
   });
 
+  it('rejects sparse spines from a custom deserialize as invalid records', () => {
+    const storage = new MemoryStorage();
+    storage.setItem('tree', 'custom');
+    const rootHole = new Array(1);
+    const trailingHole = [{ value: 'connected', context: { calls: 1 } }];
+    trailingHole.length = 2;
+
+    for (const spine of [rootHole, trailingHole]) {
+      const logger = createLogger();
+      const options = {
+        storage,
+        key: 'tree',
+        logger,
+        deserialize: () => ({
+          format: 1,
+          name: 'call-tree',
+          at: 1,
+          state: { kind: 'hierarchy', spine },
+        }),
+      };
+
+      expect(loadRecord({ ...options, name: 'call-tree' })).toBeNull();
+      expect(restoreHierarchyConfig(createRootConfig(), options)).toMatchObject(
+        { restored: false, restoredLevels: 0, recordLevels: 0 },
+      );
+      expect(logger.warn).toHaveBeenCalledWith(
+        MESSAGES.invalidRecord,
+        expect.objectContaining({ reason: 'shape' }),
+      );
+      expect(logger.warn).not.toHaveBeenCalledWith(
+        MESSAGES.partialHierarchyRestore,
+        expect.anything(),
+      );
+    }
+  });
+
   it('does not mutate original config objects', () => {
     const storage = new MemoryStorage();
     const config = createRootConfig();
@@ -808,14 +892,5 @@ describe('hierarchy restore', () => {
 
     expect(config.initial).toBe('idle');
     expect(config.children?.connected?.initial).toBe('active');
-  });
-
-  it('keeps structural hierarchy types compatible with the real package', () => {
-    expectTypeOf<
-      import('@bazariodev/fsm-hierarchy').HierarchySnapshot
-    >().toExtend<HierarchySnapshotLike>();
-    expectTypeOf<
-      import('@bazariodev/fsm-hierarchy').AnyHierarchyConfig<HierarchyEvent>
-    >().toExtend<HierarchyConfigLike>();
   });
 });
