@@ -1,31 +1,25 @@
 import { Fsm } from '@bazariodev/fsm';
 import { FsmHierarchy } from '@bazariodev/fsm-hierarchy';
-import { act, renderHook, waitFor } from '@testing-library/react';
-import { createElement, StrictMode } from 'react';
+import { act, render, renderHook, waitFor } from '@testing-library/react';
+import {
+  createElement,
+  StrictMode,
+  Suspense,
+  startTransition,
+  use,
+  useState,
+} from 'react';
 import { renderToString } from 'react-dom/server';
 import { describe, expect, it, vi } from 'vitest';
-import type { FsmSubscribable, SnapshotOf } from '../types.js';
-import { useFsm } from '../use-fsm.js';
-import { useFsmSelector } from '../use-fsm-selector.js';
-import { useFsmSnapshot } from '../use-fsm-snapshot.js';
 
-type TestEvent =
-  | { type: 'GO' }
-  | { type: 'RESET' }
-  | { type: 'INC' }
-  | { type: 'LABEL'; label: string }
-  | { type: 'NOOP' };
-
-type TestContext = {
-  count: number;
-  label: string;
-};
+import { useFsm, useFsmSelector, useFsmSnapshot } from '../index.js';
+import { MESSAGES } from '../internal/messages.js';
 
 const createMachine = (
-  context: TestContext = { count: 0, label: 'initial' },
-  initial: 'idle' | 'active' = 'idle',
-): Fsm<'idle' | 'active', TestEvent, TestContext> =>
-  new Fsm<'idle' | 'active', TestEvent, TestContext>({
+  context = { count: 0, label: 'initial' },
+  initial = 'idle',
+) =>
+  new Fsm({
     name: 'react-test',
     initial,
     context,
@@ -72,10 +66,8 @@ const createMachine = (
     },
   });
 
-type HierarchyEvent = { type: 'CONNECT' } | { type: 'MUTE' };
-
-const createHierarchy = (): FsmHierarchy<HierarchyEvent> =>
-  new FsmHierarchy<HierarchyEvent>({
+const createHierarchy = () =>
+  new FsmHierarchy({
     name: 'call',
     initial: 'idle',
     context: {},
@@ -110,23 +102,22 @@ const createHierarchy = (): FsmHierarchy<HierarchyEvent> =>
     },
   });
 
-class TestSource implements FsmSubscribable<Readonly<{ id: number }>> {
-  readonly id: number;
-  readonly #subscribers = new Set<() => void>();
+class TestSource {
+  #subscribers = new Set();
+  #snapshot;
 
   stopped = false;
-  #snapshot: Readonly<{ id: number }>;
 
-  constructor(id: number) {
+  constructor(id) {
     this.id = id;
     this.#snapshot = Object.freeze({ id });
   }
 
-  get snapshot(): Readonly<{ id: number }> {
+  get snapshot() {
     return this.#snapshot;
   }
 
-  subscribe(listener: () => void): () => void {
+  subscribe(listener) {
     if (this.stopped) return () => undefined;
     this.#subscribers.add(listener);
     return () => {
@@ -134,21 +125,13 @@ class TestSource implements FsmSubscribable<Readonly<{ id: number }>> {
     };
   }
 
-  stop(): void {
+  stop() {
     this.stopped = true;
     this.#subscribers.clear();
   }
 }
 
-type CountedSource<TSnapshot> = FsmSubscribable<TSnapshot> &
-  Readonly<{
-    subscriptions: () => number;
-    unsubscriptions: () => number;
-  }>;
-
-const countedSource = <TSnapshot>(
-  source: FsmSubscribable<TSnapshot>,
-): CountedSource<TSnapshot> => {
+const countedSource = (source) => {
   let subscriptions = 0;
   let unsubscriptions = 0;
 
@@ -168,6 +151,8 @@ const countedSource = <TSnapshot>(
     unsubscriptions: () => unsubscriptions,
   };
 };
+
+const selectCount = (snapshot) => snapshot.context.count;
 
 describe('fsm-react bindings', () => {
   it('updates whole snapshots only for committed transitions', () => {
@@ -218,14 +203,64 @@ describe('fsm-react bindings', () => {
     expect(result.current).not.toBe(initialSelection);
   });
 
+  it('recomputes when isEqual changes after a coarse comparator kept an older selection', () => {
+    const machine = createMachine();
+    const coarse = () => true;
+    const { result, rerender } = renderHook(
+      ({ isEqual }) => useFsmSelector(machine, selectCount, isEqual),
+      { initialProps: { isEqual: coarse } },
+    );
+
+    act(() => machine.send({ type: 'INC' }));
+    expect(result.current).toBe(0);
+
+    rerender({ isEqual: Object.is });
+
+    expect(result.current).toBe(1);
+  });
+
+  it('reads primitive snapshots, including undefined and a -0 to +0 change', () => {
+    const primitiveSource = (initial) => {
+      const listeners = new Set();
+      return {
+        snapshot: initial,
+        subscribe(listener) {
+          listeners.add(listener);
+          return () => listeners.delete(listener);
+        },
+        commit(next) {
+          this.snapshot = next;
+          for (const listener of listeners) listener();
+        },
+      };
+    };
+
+    const empty = primitiveSource(undefined);
+    expect(renderHook(() => useFsmSnapshot(empty)).result.current).toBe(
+      undefined,
+    );
+    expect(
+      renderHook(() => useFsmSelector(empty, (value) => value ?? 'none')).result
+        .current,
+    ).toBe('none');
+
+    const zero = primitiveSource(-0);
+    const { result } = renderHook(() => useFsmSnapshot(zero));
+    expect(Object.is(result.current, -0)).toBe(true);
+
+    act(() => zero.commit(0));
+
+    expect(Object.is(result.current, 0)).toBe(true);
+  });
+
   it('recomputes when selector identity changes without resubscribing', () => {
     const machine = createMachine({ count: 7, label: 'seven' });
     const source = countedSource(machine);
     const { result, rerender } = renderHook(
-      ({ field }: { field: 'count' | 'label' }) =>
+      ({ field }) =>
         useFsmSelector(source, (snapshot) => snapshot.context[field]),
       {
-        initialProps: { field: 'count' as 'count' | 'label' },
+        initialProps: { field: 'count' },
       },
     );
 
@@ -243,11 +278,8 @@ describe('fsm-react bindings', () => {
     const first = countedSource(createMachine({ count: 1, label: 'one' }));
     const second = countedSource(createMachine({ count: 2, label: 'two' }));
     const { result, rerender } = renderHook(
-      ({
-        source,
-      }: {
-        source: CountedSource<SnapshotOf<ReturnType<typeof createMachine>>>;
-      }) => useFsmSelector(source, (snapshot) => snapshot.context.count),
+      ({ source }) =>
+        useFsmSelector(source, (snapshot) => snapshot.context.count),
       {
         initialProps: { source: first },
       },
@@ -306,8 +338,8 @@ describe('fsm-react bindings', () => {
       return new TestSource(nextId);
     };
     const create = vi.fn(createSource);
-    const attached: number[] = [];
-    const cleaned: number[] = [];
+    const attached = [];
+    const cleaned = [];
 
     renderHook(
       () =>
@@ -335,8 +367,8 @@ describe('fsm-react bindings', () => {
       return new TestSource(nextId);
     };
     const create = vi.fn(createSource);
-    const attached: Array<{ id: number; stopped: boolean }> = [];
-    const tornDown: number[] = [];
+    const attached = [];
+    const tornDown = [];
     const { result } = renderHook(
       () =>
         useFsm(create, {
@@ -376,7 +408,7 @@ describe('fsm-react bindings', () => {
           wrapper: StrictMode,
         },
       );
-    }).toThrow('fsm-react: create must return a fresh machine after teardown');
+    }).toThrow(MESSAGES.deadMachineReturned);
   });
 
   it('runs attach cleanup before teardown on unmount', () => {
@@ -385,7 +417,7 @@ describe('fsm-react bindings', () => {
       nextId += 1;
       return new TestSource(nextId);
     };
-    const events: string[] = [];
+    const events = [];
     const { unmount } = renderHook(() =>
       useFsm(createSource, {
         attach: (source) => {
@@ -411,7 +443,7 @@ describe('fsm-react bindings', () => {
       return new TestSource(nextId);
     };
     const cleanupError = new Error('cleanup failed');
-    const tornDown: TestSource[] = [];
+    const tornDown = [];
     const { unmount } = renderHook(() =>
       useFsm(createSource, {
         attach: () => {
@@ -429,6 +461,51 @@ describe('fsm-react bindings', () => {
     expect(() => unmount()).toThrow(cleanupError);
     expect(tornDown).toHaveLength(1);
     expect(tornDown[0]?.stopped).toBe(true);
+  });
+
+  it('tears down with the committed callbacks when a later render suspends', () => {
+    const teardown = vi.fn();
+    const pending = new Promise(() => undefined);
+    let setSuspended = null;
+
+    function Owner() {
+      const [suspended, setState] = useState(false);
+      setSuspended = setState;
+      // The suspended render drops teardown, but it is never committed.
+      useFsm(() => new TestSource(1), suspended ? {} : { teardown });
+      if (suspended) use(pending);
+      return null;
+    }
+
+    const { unmount } = render(
+      createElement(Suspense, { fallback: null }, createElement(Owner)),
+    );
+    act(() => startTransition(() => setSuspended(true)));
+
+    unmount();
+
+    expect(teardown).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps the lifecycle when attach and teardown identities change', () => {
+    const attach = vi.fn();
+    const teardown = vi.fn();
+    const { rerender, unmount } = renderHook(() =>
+      useFsm(() => new TestSource(1), {
+        attach: (source) => attach(source),
+        teardown: (source) => teardown(source),
+      }),
+    );
+
+    rerender();
+    rerender();
+
+    expect(attach).toHaveBeenCalledTimes(1);
+    expect(teardown).not.toHaveBeenCalled();
+
+    unmount();
+
+    expect(teardown).toHaveBeenCalledTimes(1);
   });
 
   it('observes sends performed by attach-installed effects', async () => {

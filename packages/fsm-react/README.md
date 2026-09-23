@@ -75,7 +75,7 @@ function useFsm<TMachine extends FsmSubscribable<unknown>>(
 
 `useFsmSnapshot` and `useFsmSelector` are built on React's `useSyncExternalStore`, so they are safe for concurrent rendering. Sources must return the same `snapshot` reference between commits. A source that allocates a fresh object on every `snapshot` read violates the port contract.
 
-`useFsmSelector` does not resubscribe when inline `selector` or `isEqual` functions change. It does recompute against the current snapshot when those function identities change, so prop-driven selector changes do not return stale data.
+`useFsmSelector` does not resubscribe when inline `selector` or `isEqual` functions change. It recomputes against the current snapshot when either identity changes, so prop-driven selector or comparator changes do not return stale data.
 
 ## Component-owned machines
 
