@@ -14,6 +14,7 @@ TypeScript SDKs and tools for the UCaaS domain — realtime, SIP, chat, and tele
 | [`@bazariodev/fsm-persist`](./packages/fsm-persist) | Snapshot persistence for `@bazariodev/fsm`: write-through storage, versioned records, and rehydrate-by-construction helpers for flat machines and hierarchies. |
 | [`@bazariodev/fsm-inspect`](./packages/fsm-inspect) | Dev-time inspection helpers for transition timelines, logger capture, source commit recording, and Mermaid diagram export. |
 | [`@bazariodev/transport`](./packages/transport) | Shared transport contract and plain JavaScript WebSocket, streaming HTTP, and WebTransport adapters with bounded writes and disposal. |
+| [`@bazariodev/idle-watchdog`](./packages/idle-watchdog) | Dependency-free, re-armable one-shot inactivity timer with explicit activity reporting, idle subscriptions, and disposal. |
 
 ## Architecture
 

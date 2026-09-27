@@ -402,7 +402,7 @@
     <main>
       <p class="principle">
         <strong>Ownership rule:</strong> transport owns one physical attempt; watchdog owns timer
-        mechanics; keepalive owns ping/pong state; realtime owns traffic resets, transport effects,
+        mechanics; keepalive owns ping/pong state; realtime owns watchdog arming, transport effects,
         and the logical connection across attempts; higher layers own delivery semantics.
       </p>
 
@@ -533,7 +533,7 @@
               <tr>
                 <td>Idle timer mechanics</td>
                 <td><code>IdleWatchdog</code></td>
-                <td>Arms, resets on command, and emits one idle event without resource policy.</td>
+                <td>Arms or re-arms on command and emits one idle event without resource policy.</td>
               </tr>
               <tr>
                 <td>Ping/pong conversation</td>
@@ -544,9 +544,9 @@
                 </td>
               </tr>
               <tr>
-                <td>Traffic reset and liveness effects</td>
+                <td>Watchdog arming and liveness effects</td>
                 <td><code>RealtimeClient</code></td>
-                <td>Classifies accepted traffic, resets the watchdog, writes probes, and retires attempts.</td>
+                <td>Classifies accepted traffic, re-arms the watchdog, writes probes, and retires attempts.</td>
               </tr>
               <tr>
                 <td>Realtime wire protocol</td>
@@ -591,7 +591,7 @@
           </li>
           <li>
             <strong>Liveness helpers stay resource-free</strong>
-            <span>They emit events; only RealtimeClient resets activity or acts on a transport.</span>
+            <span>They emit events; only RealtimeClient arms the watchdog or acts on a transport.</span>
           </li>
           <li>
             <strong>RPC stays lifecycle-free</strong>
@@ -668,7 +668,7 @@ type TransportFactory = () =&gt; Transport;</code></pre>
     </main>
 
     <footer>
-      <p>Proposed R2 architecture · revised 2026-09-14</p>
+      <p>Proposed R2 architecture · revised 2026-09-27</p>
     </footer>
   </body>
 </html>

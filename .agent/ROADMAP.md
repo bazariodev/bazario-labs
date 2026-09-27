@@ -48,7 +48,7 @@ Responsibility and dependency guide: [`docs/realtime-client-hierarchy.html`](../
 | Package | Purpose | Status | Release |
 | --- | --- | --- | --- |
 | `transport` | shared one-attempt contract with WebSocket, streaming HTTP (GET + POST), and reliable-stream WebTransport adapters | implemented, release pending | R2 |
-| `idle-watchdog` | re-armable one-shot inactivity timer; consumers own reset and idle-event policy | adr | R2 |
+| `idle-watchdog` | re-armable one-shot inactivity timer; consumers own arming and idle-event policy | implemented, release pending | R2 |
 | `keepalive` | protocol-configurable ping/pong state driven by idle or immediate probes; owns one response deadline, never the transport | adr | R2 |
 | `realtime` | logical `RealtimeClient` over `transport`: JSON handshake, readiness, idle keepalive composition, and reconnect backoff across attempts | adr | R2 |
 | `rpc` | request/response correlation, timeouts, and typed methods over `RealtimeClient` messages | planned | R2 |

@@ -2,7 +2,7 @@
 
 - Status: Proposed
 - Date: 2026-09-13
-- Revised: 2026-09-14
+- Revised: 2026-09-27
 
 ## Context
 
@@ -19,7 +19,7 @@ The keepalive abstraction should know only the ping/pong conversation:
 5. after reporting a timeout, another correlated round starts unless an owner stopped the instance;
 6. an optional peer ping is converted into a pong request.
 
-It must not own a transport, send directly, reset an idle timer, close a socket, or reconnect a
+It must not own a transport, send directly, arm an idle timer, close a socket, or reconnect a
 client. `RealtimeClient` owns those effects because it owns the current transport attempt and is the
 only component that can guard them against stale generations.
 
@@ -44,7 +44,7 @@ It publishes a single typed event stream:
 The package owns one response-deadline timer for its pending ping. It does not own the quiet-period
 timer that decides when the first probe is needed. `RealtimeClient` wires the watchdog to
 `handleIdle()`, subscribes to keepalive events, performs requested transport writes, and owns every
-watchdog reset. `probeNow()` starts the ping path synchronously; it does not schedule a zero-delay
+watchdog arming. `probeNow()` starts the ping path synchronously; it does not schedule a zero-delay
 timer.
 
 `Keepalive` has no dependency on `IdleWatchdog`. Idle-driven composition is one use case, not a
@@ -170,7 +170,7 @@ any state --stop----------------------> stopped
 - `receive()` returns `true` only for a matching pong or a peer ping handled by `createPong()`; control
   packets consumed by keepalive are not delivered as application messages;
 - unrelated traffic is not consumed, does not clear the pending correlation, and does not move its
-  response deadline. A composing `RealtimeClient` may still reset `IdleWatchdog` for that traffic,
+  response deadline. A composing `RealtimeClient` may still arm `IdleWatchdog` for that traffic,
   but the watchdog controls only when a quiet connection first needs a probe;
 - when the response deadline expires, keepalive first disarms and invalidates that timer, removes the
   expired correlation from pending state, and publishes one `timeout` event containing the expired
@@ -208,7 +208,7 @@ keepalive package itself still performs no external resource action.
 
 ```text
 valid/accepted traffic ───────────────┐
-                                      ↓ reset()
+                                      ↓ arm()
 Transport ← send request ← RealtimeClient → IdleWatchdog
      │                         ↑              │
      │ incoming packet         │              │ onIdle
@@ -224,8 +224,8 @@ For each ready transport attempt, `RealtimeClient`:
 1. creates a fresh watchdog and keepalive;
 2. wires `watchdog.onIdle(() => keepalive.handleIdle())`;
 3. subscribes to keepalive events;
-4. arms the watchdog by calling `reset()` on ready entry;
-5. resets it after each valid incoming packet and accepted outgoing packet;
+4. arms the watchdog by calling `arm()` on ready entry;
+5. re-arms it after each valid incoming packet and accepted outgoing packet;
 6. passes incoming control packets to `keepalive.receive()`;
 7. writes `send` events through the same generation-guarded internal packet path;
 8. exposes `probeNow()` as a guarded delegation while the attempt is ready;
@@ -249,7 +249,7 @@ last accepted traffic ── idleMs ──> ping ── deadlineMs ──> timeo
                                       │                         │
                                       ├─ matching pong → quiet  ├─ stop() → stopped
                                       │                         └─ still active → fresh ping
-                                      └─ unrelated traffic resets only the idle watchdog
+                                      └─ unrelated traffic re-arms only the idle watchdog
 ```
 
 A completely silent dead connection is first reported within approximately `idleMs + deadlineMs`,
@@ -289,7 +289,7 @@ In v1:
 
 Not in v1:
 
-- idle scheduling, watchdog reset, transport access, serialization, logging packet bodies, close, or
+- idle scheduling, watchdog arming, transport access, serialization, logging packet bodies, close, or
   reconnect;
 - fixed protocol fields, JSON assumptions, request-id generation policy, or authentication;
 - multiple simultaneous probes, configurable retry budgets, retry backoff, jitter, adaptive
@@ -331,9 +331,9 @@ Required public-behavior tests:
 Realtime integration tests must additionally prove:
 
 - keepalive subscribes to the watchdog through `RealtimeClient` wiring;
-- neither keepalive nor watchdog calls `reset()`;
-- accepted ping/pong writes and valid incoming traffic are reset by `RealtimeClient`;
-- watchdog resets do not move keepalive's pending response deadline;
+- neither keepalive nor watchdog calls `arm()`;
+- `RealtimeClient` calls `watchdog.arm()` after accepted ping/pong writes and valid incoming traffic;
+- re-arming the watchdog does not move keepalive's pending response deadline;
 - ready `RealtimeClient.probeNow()` delegates immediately, while non-ready or disabled calls are
   inert;
 - rejected control writes and timeout events retire only the current transport generation;
@@ -345,7 +345,7 @@ Realtime integration tests must additionally prove:
 owns the general inactivity question and can serve consumers unrelated to ping/pong. Keepalive owns
 only the deadline created by a ping it has issued.
 
-**Implement immediate probing as `setTimeout(..., 0)` or `watchdog.reset(0)`.** Rejected. A direct
+**Implement immediate probing as `setTimeout(..., 0)` or `watchdog.arm(0)`.** Rejected. A direct
 `probeNow()` input is simpler, deterministic, and does not overload the watchdog's meaning of
 "activity happened". It also avoids a queued zero-delay callback racing with traffic or disposal.
 
@@ -364,7 +364,7 @@ budget add policy that the reusable v1 does not need; it continues until an owne
 **Inject the transport and close callback into keepalive.** Rejected. It would let a protocol helper
 act on a stale attempt and duplicate `RealtimeClient` lifecycle ownership.
 
-**Let keepalive reset the watchdog after sending or receiving.** Rejected. Keepalive does not know
+**Let keepalive arm the watchdog after sending or receiving.** Rejected. Keepalive does not know
 whether the transport accepted a write or whether an incoming packet passed the realtime protocol
 boundary. `RealtimeClient` has the authoritative evidence.
 
@@ -382,7 +382,7 @@ Positive:
   dependency;
 - callers can probe immediately without coupling keepalive to a wake monitor;
 - ping/pong wire shape remains a caller configuration;
-- `RealtimeClient` remains the only transport-attempt and reset owner;
+- `RealtimeClient` remains the only owner of transport attempts and watchdog arming;
 - the same component can support JSON, SIP, or another message shape;
 - one correlated probe avoids false success from unrelated packets;
 - same-stack re-entrancy and back-to-back calls cannot create duplicate probes;
@@ -390,7 +390,7 @@ Positive:
 
 Tradeoffs:
 
-- composition requires two subscriptions and explicit write/reset handling in `RealtimeClient`;
+- composition requires two subscriptions and explicit write/arm handling in `RealtimeClient`;
 - first failure detection takes `idleMs + deadlineMs` for an idle-driven probe and depends on platform
   timer scheduling;
 - an immediate probe still waits one configured `deadlineMs` for its pong verdict;
@@ -413,7 +413,7 @@ Tradeoffs:
 
 `@bazariodev/keepalive` turns idle signals, immediate probe requests, and incoming packets into typed
 ping, pong, timeout, and error events. Packet shape and correlation are configured; transport writes,
-watchdog resets, closing, and reconnecting stay in `RealtimeClient`. `probeNow()` sends immediately
+watchdog arming, closing, and reconnecting stay in `RealtimeClient`. `probeNow()` sends immediately
 when quiet, coalesces re-entrant or simultaneous requests, and preserves an existing pending probe. A
 first idle sends one probe; a matching pong clears its configurable deadline. A missed deadline emits
 the expired correlation and starts a fresh round only after subscribers have had the chance to stop

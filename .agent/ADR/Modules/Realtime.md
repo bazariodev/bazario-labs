@@ -2,7 +2,7 @@
 
 - Status: Proposed
 - Date: 2026-09-03
-- Revised: 2026-09-22
+- Revised: 2026-09-27
 
 ## Context
 
@@ -37,7 +37,7 @@ It owns exactly five concerns that must agree on one logical lifecycle:
 
 1. create and retire one injected `Transport` attempt at a time;
 2. perform a small JSON connect/ready handshake;
-3. compose idle detection and a configurable ping/pong probe while owning every traffic reset and
+3. compose idle detection and a configurable ping/pong probe while owning every watchdog arming and
    transport effect;
 4. reconnect with capped exponential backoff and jitter while connection intent remains true;
 5. expose state and validated JSON application messages to consumers.
@@ -46,7 +46,7 @@ The package depends on the thin `Transport` contract from `@bazariodev/transport
 `@bazariodev/fsm` for its four-state lifecycle, and uses `@bazariodev/fsm-delays` for the connect
 timeout and reconnect delay. It composes `@bazariodev/idle-watchdog` and
 `@bazariodev/keepalive` for attempt-local liveness. `RealtimeClient` owns the current transport
-instance, liveness wiring, traffic-reset policy, attempt generation, and listener registries. One
+instance, liveness wiring, watchdog arming policy, attempt generation, and listener registries. One
 transport attempt intentionally spans both `connecting` and `ready`.
 
 The transport contract owns no FSM, reconnect, heartbeat, readiness, offline, or cross-attempt queue.
@@ -89,7 +89,7 @@ open, close, retain, or replace the current transport.
 
 The ownership rule is: **transport owns one physical attempt; watchdog owns inactivity timer
 mechanics; keepalive owns ping/pong protocol state and its per-ping response deadline; realtime owns
-the logical connection, traffic resets, and all transport effects across attempts; higher layers own
+the logical connection, watchdog arming, and all transport effects across attempts; higher layers own
 application delivery semantics.** See
 `Transport.md`, `IdleWatchdog.md`, and `Keepalive.md` for the narrower contracts.
 
@@ -159,13 +159,13 @@ Handshake:
 4. only `ready` moves the client to the sendable `ready` state.
 
 After `ready`, `RealtimeClient` creates an attempt-local `IdleWatchdog` and `Keepalive`, wires the
-watchdog's `onIdle` event to `keepalive.handleIdle()`, and calls `watchdog.reset()`. Every valid
-incoming packet and every outgoing packet accepted by the transport resets the watchdog. Keepalive
-and the watchdog never reset it themselves.
+watchdog's `onIdle` event to `keepalive.handleIdle()`, and calls `watchdog.arm()`. Every valid
+incoming packet and every outgoing packet accepted by the transport re-arms the watchdog. Keepalive
+and the watchdog never arm it themselves.
 
 The first idle event asks `RealtimeClient` to send a client `ping`. Keepalive arms its configurable
-`deadlineMs` before publishing that send request. A successful write resets the watchdog, but that
-traffic reset does not move the pending ping deadline. A server `pong` with the same id completes the
+`deadlineMs` before publishing that send request. A successful write re-arms the watchdog, but that
+re-arming does not move the pending ping deadline. A server `pong` with the same id completes the
 probe and clears the deadline. If no matching pong arrives in time, keepalive clears the expired
 round and emits `timeout` with its correlation.
 
@@ -314,7 +314,7 @@ any active state --reconnect--> connecting (replace immediately, no delay)
 
 `send()` succeeds only in `ready`. It JSON-encodes one `message` packet, rejects a packet above
 `maxMessageBytes`, and hands the text to the current transport. `transport.send()` returns no value
-on acceptance and throws on rejection. The client resets the attempt-local watchdog only after that
+on acceptance and throws on rejection. The client re-arms the attempt-local watchdog only after that
 call returns successfully, then returns `true` from its own public `send()` method. It catches
 transport write exceptions and reports them as the cause of a `send` error. Its public method returns
 `false` when not ready, serialization fails, the packet is oversized, or the transport rejects the
@@ -372,8 +372,8 @@ Required public-behavior tests:
   retry; diagnostic transport errors alone do not start another retry path;
 - deterministic capped jitter and reset only after ready;
 - stale open/message/error/close callbacks from a retired transport do nothing;
-- ready entry and every valid incoming/accepted outgoing packet reset only the current watchdog;
-- first idle requests one correlated ping; accepted ping resets the watchdog without moving the
+- ready entry and every valid incoming/accepted outgoing packet arm only the current watchdog;
+- first idle requests one correlated ping; accepted ping re-arms the watchdog without moving the
   response deadline; matching pong is consumed and clears that deadline;
 - response-deadline expiry reports the timed-out correlation, then realtime stops keepalive before
   its automatic next round and reconnects exactly once;
@@ -382,13 +382,13 @@ Required public-behavior tests:
 - back-to-back or re-entrant ready probes coalesce into one keepalive ping without a client-side
   queue;
 - peer ping receives a matching pong through the generation-guarded internal send path;
-- rejected keepalive writes fail the current attempt without resetting its watchdog;
+- rejected keepalive writes fail the current attempt without re-arming its watchdog;
 - post-sleep recovery probes immediately through `net-monitor`; the configured response deadline or
   confirmed network replacement then follows the ordinary reconnect path;
 - retryable versus non-retryable `connect_error`;
 - malformed, oversized, binary, unsupported-version, and pre-ready packets fail closed;
 - no application send queue; a transport write exception is caught and reported, and the client's
-  public `send()` returns false without resetting the watchdog;
+  public `send()` returns false without re-arming the watchdog;
 - listener failure isolation and idempotent terminal `stop()`;
 - snapshot reference stability between FSM commits.
 
@@ -418,7 +418,7 @@ create ambiguous ownership. The accepted transport boundary is one physical atte
 but its transport/effects/notifier/backoff/keepalive/watchdog/factory split and eight states reflect an
 existing application's history and orchestration. Bazario keeps only two bounded primitives:
 `IdleWatchdog` owns one inactivity timer and `Keepalive` owns one response-deadline timer and one
-protocol round at a time. `RealtimeClient` still owns the four-state lifecycle, wiring, reset policy,
+protocol round at a time. `RealtimeClient` still owns the four-state lifecycle, wiring, arming policy,
 and every transport effect.
 
 **Fixed client-initiated ping interval.** Rejected. It sends redundant traffic on an already-active
@@ -500,6 +500,6 @@ Socket.IO's handshake, intent, cleanup, and reconnect discipline. Attempt-local 
 without receiving the transport. The same keepalive can be probed immediately after wake or
 foreground return without involving the watchdog scheduler.
 Concrete platform mechanics remain below and queues, acknowledgements, retries, and recovery remain
-above. `RealtimeClient` is the sole logical connection-lifecycle, traffic-reset, and transport-effect
+above. `RealtimeClient` is the sole logical connection-lifecycle, watchdog-arming, and transport-effect
 owner; `auth-session`, `net-monitor`, `rpc`, and domain synchronization compose around it instead of
 being absorbed into it.
