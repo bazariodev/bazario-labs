@@ -61,8 +61,9 @@ The goal of the repository is to provide reusable SDK building blocks for commun
 Common root commands:
 
 - `pnpm build`: build all packages
-- `pnpm test`: run package tests
-- `pnpm typecheck`: run TypeScript checks across packages
+- `pnpm test`: build all packages, then run package tests
+- `pnpm tsc`: build all packages, then check their public TypeScript interfaces
+- `pnpm health`: build once, then type-check, lint, and test all packages
 - `pnpm lint`: run Biome checks
 - `pnpm lint:fix`: apply Biome fixes
 - `pnpm format`: format the codebase

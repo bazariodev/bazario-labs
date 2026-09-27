@@ -35,12 +35,16 @@ pnpm test
 | Command | Description |
 | --- | --- |
 | `pnpm build` | Build all packages |
-| `pnpm test` | Run tests in all packages |
-| `pnpm typecheck` | Type-check all packages |
+| `pnpm test` | Build all packages, then run their tests |
+| `pnpm tsc` | Build all packages, then type-check their public interfaces |
+| `pnpm health` | Build once, then type-check, lint, and test all packages |
 | `pnpm lint` | Lint with Biome |
 | `pnpm lint:fix` | Lint and auto-fix |
 | `pnpm format` | Format with Biome |
 | `pnpm changeset` | Create a changeset for releasing |
+
+Workspace imports resolve through each package's `dist` exports, so typechecks and tests need
+the build output. The root commands above prepare it automatically, including on a fresh checkout.
 
 ## Releasing
 
