@@ -1,5 +1,4 @@
 /// <reference lib="esnext.disposable" />
-/// <reference lib="dom" />
 
 import type { FsmCore, FsmEvent, FsmSnapshot, Logger } from '@bazariodev/fsm';
 

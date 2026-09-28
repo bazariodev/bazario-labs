@@ -258,8 +258,10 @@ rejected inputs. [Native WebTransport verification](./WEBTRANSPORT_CHECK.md) rec
 and HTTP/3 server check for close metadata, stream resets, and connection loss.
 
 The package ships ESM and CommonJS with matching `.d.ts` and `.d.cts` files. The public platform types
-reference the standard DOM and disposable libraries. Importing these declarations also adds DOM
-globals to Node-only TypeScript consumers; no custom platform type shims are provided.
+use standard Web API types and reference the disposable library. Consumers select `DOM` or
+`WebWorker` libraries for those APIs; the package does not inject DOM globals. Node projects also
+need declarations for the exposed Web APIs, including WebTransport. `typecheck` covers browser and
+Worker consumers with library checking enabled.
 
 ## License
 

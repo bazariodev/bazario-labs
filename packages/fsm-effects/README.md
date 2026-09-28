@@ -78,6 +78,12 @@ errors are logged rather than thrown, so this catches a misconfigured effect up 
 
 Aborts the current controller (running its cleanups), unsubscribes, and ignores later transitions. Idempotent. `[Symbol.dispose]` aliases it for `using`.
 
+## TypeScript
+
+Consumers supply `AbortSignal` through their browser (`DOM`), Worker (`WebWorker`), or Node types.
+The package does not inject DOM globals. `typecheck` checks browser and Worker consumer examples
+with library checking enabled.
+
 ## License
 
 MIT

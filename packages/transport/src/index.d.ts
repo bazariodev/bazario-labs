@@ -1,5 +1,4 @@
 /// <reference lib="esnext.disposable" />
-/// <reference lib="dom" />
 
 export type TransportMessage = string | Uint8Array;
 
