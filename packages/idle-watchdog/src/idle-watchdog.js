@@ -22,7 +22,7 @@ export class IdleWatchdog {
       idleMs > MAX_IDLE_MS
     ) {
       throw new RangeError(
-        `idleMs must be an integer between ${MIN_IDLE_MS} and ${MAX_IDLE_MS}.`,
+        `Duration must be an integer between ${MIN_IDLE_MS} and ${MAX_IDLE_MS} milliseconds; received ${String(idleMs)}.`,
       );
     }
     this.#idleMs = idleMs;

@@ -258,7 +258,9 @@ describe('IdleWatchdog', () => {
     expect(() => new IdleWatchdog({ idleMs })).toThrow(RangeError);
     const scheduler = { setTimeout: vi.fn(), clearTimeout: vi.fn() };
     expect(() => new IdleWatchdog({ idleMs, scheduler })).toThrow(
-      new RangeError('idleMs must be an integer between 1 and 2147483647.'),
+      new RangeError(
+        `Duration must be an integer between 1 and 2147483647 milliseconds; received ${String(idleMs)}.`,
+      ),
     );
     expect(scheduler.setTimeout).not.toHaveBeenCalled();
     expect(scheduler.clearTimeout).not.toHaveBeenCalled();

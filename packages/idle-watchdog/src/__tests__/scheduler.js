@@ -18,7 +18,9 @@ export function createScheduler() {
     advance(ms) {
       const target = now + ms;
       while (true) {
-        const due = [...timers].find(([, { at }]) => at <= target);
+        const due = [...timers]
+          .filter(([, { at }]) => at <= target)
+          .sort(([, first], [, second]) => first.at - second.at)[0];
         if (!due) break;
         const [handle, { at, callback }] = due;
         timers.delete(handle);
