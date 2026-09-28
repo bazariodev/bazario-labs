@@ -65,9 +65,11 @@ must not throw. Logging defaults to a no-op.
 
 ## Composition
 
-The watchdog does not inspect traffic, send pings, close connections, or reconnect. A consumer such
-as `RealtimeClient` decides what counts as activity, reports it through `arm()`, and connects
-`onIdle` to its own probe policy. Each resource lifecycle should dispose its watchdog when finished.
+The watchdog does not inspect traffic, send pings, close connections, or reconnect. Its consumer
+owns arming and expiry policy. `Keepalive` composes two watchdogs internally for inactivity and promise-probe
+deadline windows. `RealtimeClient` reports validated incoming traffic to keepalive and handles connection
+recovery; it does not directly manage those timers. Other consumers can use a watchdog independently.
+Each owner should dispose its watchdog when finished.
 
 The package has no dependency on FSM, keepalive, transport, or React. It ships ESM and CommonJS
 runtime exports with public TypeScript declarations.

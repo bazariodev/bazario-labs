@@ -97,6 +97,12 @@ importers:
 
   packages/idle-watchdog: {}
 
+  packages/keepalive:
+    dependencies:
+      '@bazariodev/idle-watchdog':
+        specifier: workspace:^
+        version: link:../idle-watchdog
+
   packages/transport: {}
 
 packages:

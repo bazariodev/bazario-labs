@@ -19,7 +19,7 @@ Ringotel demonstrates the product requirements but also the cost of splitting lo
 policy across an FSM configuration, effects class, notifier, reconnect scheduler, keepalive,
 watchdog, factory, and application orchestrator. The problem is duplicated policy, not the existence
 of small reusable primitives. A raw transport adapter, an idle timer, and a keepalive with a bounded
-per-ping deadline are valid boundaries as long as none becomes a second lifecycle manager. The
+per-probe deadline are valid boundaries as long as none becomes a second lifecycle manager. The
 reusable lessons are:
 
 - `READY` must be the only sendable state;
@@ -37,24 +37,25 @@ It owns exactly five concerns that must agree on one logical lifecycle:
 
 1. create and retire one injected `Transport` attempt at a time;
 2. perform a small JSON connect/ready handshake;
-3. compose idle detection and a configurable ping/pong probe while owning every watchdog arming and
-   transport effect;
+3. handle ping/pong controls on every ready attempt, enable keepalive monitoring by default, report
+   validated inbound traffic, and own probe binding and failure recovery;
 4. reconnect with capped exponential backoff and jitter while connection intent remains true;
 5. expose state and validated JSON application messages to consumers.
 
 The package depends on the thin `Transport` contract from `@bazariodev/transport`, uses
 `@bazariodev/fsm` for its four-state lifecycle, and uses `@bazariodev/fsm-delays` for the connect
-timeout and reconnect delay. It composes `@bazariodev/idle-watchdog` and
-`@bazariodev/keepalive` for attempt-local liveness. `RealtimeClient` owns the current transport
-instance, liveness wiring, watchdog arming policy, attempt generation, and listener registries. One
+timeout and reconnect delay. It composes `@bazariodev/keepalive` for attempt-local liveness;
+keepalive owns two internal `@bazariodev/idle-watchdog` instances. `RealtimeClient` owns the current
+transport, traffic classification, guarded writes, attempt generation, and listener registries. One
 transport attempt intentionally spans both `connecting` and `ready`.
 
 The transport contract owns no FSM, reconnect, heartbeat, readiness, offline, or cross-attempt queue.
 The application composition root selects `WebSocketAdapter`, `HttpAdapter`, or
 `WebTransportAdapter` from `@bazariodev/transport`; `realtime` does not import a concrete adapter. `IdleWatchdog`
-owns only a re-armable inactivity timer, and `Keepalive` owns at most one ping/pong round and response
-deadline at a time. Neither
-receives a transport or reconnect callback.
+owns reusable timer mechanics. `Keepalive` owns inactivity monitoring, at most one promise probe,
+and a separate deadline. It receives an injected `probe(signal): Promise<void>`, never a transport
+instance or reconnect callback. A small internal realtime protocol handler owns the default ping/pong
+exchange and exposes `probe(signal)`. An optional custom probe can replace the client-initiated check.
 
 ## Architecture and ownership
 
@@ -64,8 +65,9 @@ product/domain packages
 @bazariodev/rpc
         ↓ send / onMessage / onReady
 @bazariodev/realtime (logical connection across attempts)
-        ├─ @bazariodev/idle-watchdog (attempt-local idle timer)
-        ├─ @bazariodev/keepalive (attempt-local ping/pong state + deadline)
+        ├─ internal protocol handler (ping/pong controls; always present while ready)
+        ├─ @bazariodev/keepalive (attempt-local liveness monitor; enabled by default)
+        │       └─ @bazariodev/idle-watchdog (idle and response windows)
         ↓ TransportFactory
 @bazariodev/transport: Transport (one-attempt port)
         ↑ implemented by
@@ -75,10 +77,11 @@ WebSocketAdapter (same package) → browser WebSocket → realtime server
 The application imports `realtime` and its chosen adapter. Package dependencies point inward:
 
 - `transport` contains the contract and platform adapters, with no runtime dependencies;
-- `idle-watchdog` and `keepalive` have no runtime dependencies and no transport knowledge;
-- `realtime` depends on the interface from `transport`, plus `fsm`, `fsm-delays`, `idle-watchdog`, and
-  `keepalive`; the application selects the concrete transport adapter;
-- `rpc` depends only on the public realtime message/readiness seam;
+- `idle-watchdog` has no runtime dependencies; `keepalive` depends only on `idle-watchdog`;
+- `realtime` depends on the interface from `transport`, plus `fsm`, `fsm-delays`, and `keepalive`;
+  the application selects the concrete transport adapter;
+- `rpc` depends only on the public realtime message/readiness seam; the application can inject
+  a probe backed by its request handler without adding a realtime-to-RPC package dependency;
 - product/domain packages compose over `rpc` or the smallest realtime seam they require.
 
 Cross-cutting modules do not sit in the message path. `auth-session` supplies fresh credentials for
@@ -88,8 +91,8 @@ be replaced. `fsm-react` and `fsm-inspect` observe the structural realtime snaps
 open, close, retain, or replace the current transport.
 
 The ownership rule is: **transport owns one physical attempt; watchdog owns inactivity timer
-mechanics; keepalive owns ping/pong protocol state and its per-ping response deadline; realtime owns
-the logical connection, watchdog arming, and all transport effects across attempts; higher layers own
+mechanics; keepalive owns inactivity and promise-probe orchestration; realtime owns the logical
+connection, traffic classification, and all transport effects across attempts; higher layers own
 application delivery semantics.** See
 `Transport.md`, `IdleWatchdog.md`, and `Keepalive.md` for the narrower contracts.
 
@@ -101,7 +104,7 @@ application delivery semantics.** See
 | transport open is not application ready | take: wait for a server `ready` packet |
 | explicit active/manual-disconnect distinction | take: private desired-connected intent |
 | one reconnect loop with capped jittered backoff | take |
-| ping/pong liveness | take the correlated exchange and bounded response deadline; trigger the first round only after socket idleness or an explicit probe |
+| ping/pong liveness | internal protocol handler supplies the default promise probe; keepalive bounds it after idleness or an explicit probe |
 | connection-attempt timeout | take |
 | cleanup subscriptions and ignore stale engines | take: one monotonic attempt generation |
 | typed event maps and unsubscribe handles | take, with a smaller API |
@@ -110,7 +113,7 @@ application delivery semantics.** See
 | polling/WebTransport fallback and live upgrades | leave; adapter selection is static in v1 |
 | custom packet parsers and binary attachments | leave; v1 is bounded JSON |
 | automatic send buffer and retry queue | leave; replay semantics belong to `rpc`/outbox owners |
-| acknowledgements and request correlation | leave to `@bazariodev/rpc` |
+| application acknowledgements and request correlation | leave to `@bazariodev/rpc` |
 | missed-event persistence and recovery offsets | leave to server/domain synchronization |
 
 ## Wire protocol v1
@@ -158,33 +161,44 @@ Handshake:
 3. the server sends `ready` or `connect_error`;
 4. only `ready` moves the client to the sendable `ready` state.
 
-After `ready`, `RealtimeClient` creates an attempt-local `IdleWatchdog` and `Keepalive`, wires the
-watchdog's `onIdle` event to `keepalive.handleIdle()`, and calls `watchdog.arm()`. Every valid
-incoming packet and every outgoing packet accepted by the transport re-arms the watchdog. Keepalive
-and the watchdog never arm it themselves.
+Every valid `ready` creates an internal protocol handler bound to that attempt's guarded writer.
+It consumes `ping` and `pong` control packets before application delivery and always answers a server
+`ping` with a `pong` carrying the same ID. All valid pongs are consumed, including unmatched or late
+ones; only the pending probe's matching ID can fulfill its promise. A server ping never fulfills a
+local probe. These controls are legal only after readiness.
 
-The first idle event asks `RealtimeClient` to send a client `ping`. Keepalive arms its configurable
-`deadlineMs` before publishing that send request. A successful write re-arms the watchdog, but that
-re-arming does not move the pending ping deadline. A server `pong` with the same id completes the
-probe and clears the deadline. If no matching pong arrives in time, keepalive clears the expired
-round and emits `timeout` with its correlation.
+Client liveness monitoring is enabled by default. With `keepalive` omitted or `{}`, realtime creates
+one attempt-local Keepalive, binds the handler's `probe(signal)`, subscribes to `onFail`, and calls
+`start()`. `keepalive: false` disables client-initiated idle and immediate probes only. An optional
+`keepalive.probe` replaces only that check. The internal handler still consumes ping/pong and answers
+server pings with either configuration. The application supplies no probe on the default path.
 
-Generic keepalive would start a fresh correlated round after timeout notification unless stopped.
-`RealtimeClient` deliberately stops it synchronously in its timeout subscriber, reports a
-`keepalive` error, and retires the current transport generation. This prevents the next round from
-sending on an attempt that realtime policy has already declared failed.
+The handler is internal to the realtime package, with no public export or new package until a second
+consumer needs it. It owns fresh correlation IDs, matching, and abort cleanup. Before writing a ping,
+it registers the matcher and abort listener so an immediate response cannot be lost. It fulfills only
+after a valid matching pong from this connection, rejects failed writes, and uses Keepalive's signal
+instead of another deadline. Settlement or abort removes pending resources; an already-aborted signal
+prevents writes. Handler disposal ends pending work and prevents further writes.
 
-`RealtimeClient.probeNow()` delegates synchronously to the current keepalive while `ready`. This
-sends a ping immediately instead of waiting for the first idle window; the same configured
-`deadlineMs` bounds its answer. If a probe is already pending, the call is idempotent and preserves
-its correlation rather than invalidating a pong already in flight. The method is inert when
-keepalive is disabled or the client is not ready.
+Realtime invokes both default and custom probes through a current-ready-generation guard. A custom
+probe owns its request/response validation, must honor abort and await the response before fulfilling,
+and must not retry or replay across attempts. It may use the application message seam; realtime does
+not import RPC. Keepalive observes only the returned promise, regardless of which handler supplies it.
 
-The protocol is symmetric enough to accept a server `ping`: keepalive asks `RealtimeClient` to send
-the matching client `pong`. Active application or control traffic postpones the next idle-triggered
-probe because the selected policy measures total socket idleness; it does not postpone an existing
-ping's deadline. Only a matching pong completes an outstanding probe. Ping/pong remains part of the
-realtime protocol, not the raw transport contract.
+Only validated incoming packets on the current ready connection call `keepalive.activity()`.
+Outgoing application and control writes never refresh idleness: local admission cannot prove peer
+reachability. A connection that sends continuously but receives nothing still gets a probe after
+`idleMs`. Payload validation remains with its owner.
+
+Keepalive owns the probe lifecycle described in [its canonical contract](Keepalive.md#lifecycle-and-timing).
+Its first timeout or operation error retires only the current transport generation through realtime's
+single recovery path. Aborted or stale work cannot affect a later attempt.
+
+`RealtimeClient.probeNow()` delegates to the current Keepalive only while ready. It invokes the probe
+immediately with the same deadline, skipping the remaining idle wait. Repeated calls coalesce with
+the pending operation. The method is inert when liveness monitoring is disabled or the client is not
+ready. Peer-ping replies are independent internal-handler work; they remain enabled with client
+probing disabled or customized, and their traffic cannot extend a pending deadline.
 
 Browser timers can be delayed in background tabs. Keepalive is therefore a quiet-socket fallback,
 not the only wake mechanism: `net-monitor` requests `probeNow()` after a visibility or sleep/wake
@@ -200,6 +214,8 @@ header limitations belong to the selected adapter and deployment.
 Illustrative types; exact helper names may change without changing this decision.
 
 ```ts
+import type { KeepaliveProbe } from '@bazariodev/keepalive';
+
 type RealtimeState = 'idle' | 'connecting' | 'ready' | 'backoff';
 
 type RealtimeContext = Readonly<{
@@ -217,7 +233,8 @@ type ReconnectOptions = Readonly<{
 
 type RealtimeKeepaliveOptions = Readonly<{
   idleMs?: number;     // default 30_000; quiet time before the first probe
-  deadlineMs?: number; // default 30_000; maximum time for each matching pong
+  deadlineMs?: number; // default 30_000; maximum wait for each probe
+  probe?: KeepaliveProbe; // Defaults to the internal ping/pong handler.
 }>;
 
 type RealtimeClientError = Readonly<{
@@ -230,7 +247,7 @@ type RealtimeClientOptions = Readonly<{
   createTransport: TransportFactory;
   auth?: () => JsonValue | undefined;
   reconnect?: ReconnectOptions;
-  keepalive?: RealtimeKeepaliveOptions | false;
+  keepalive?: RealtimeKeepaliveOptions | false; // Default on; false disables client probes only.
   connectTimeoutMs?: number; // default 10_000; includes the ready handshake
   maxMessageBytes?: number;  // default 1 MiB
   scheduler?: Scheduler;
@@ -262,9 +279,9 @@ class RealtimeClient {
 
 `createTransport()` is called once for each attempt and must return a fresh, unstarted `Transport`.
 Construction or `start()` failures are ordinary attempt failures handled by the realtime backoff
-policy. Unless explicitly disabled, realtime constructs fresh watchdog and keepalive instances after
-each ready handshake. Their generic packet adapter is fixed to the realtime v1 `ping`/`pong` shapes;
-other consumers configure the generic `@bazariodev/keepalive` package directly.
+policy. After each ready handshake, realtime constructs a fresh internal protocol handler and,
+unless `keepalive: false`, a fresh Keepalive. Keepalive owns its watchdogs. Realtime supplies the
+handler's probe by default; other consumers use the same generic promise contract directly.
 
 Listener registration returns its cleanup function; paired `onX`/`offX` methods and a separate
 notifier object add no value. State observation satisfies the existing `FsmSubscribable` shape, so
@@ -295,18 +312,20 @@ any active state --reconnect--> connecting (replace immediately, no delay)
   packet resets the attempt counter. Reconnect continues until explicit disconnect, stop, or a
   non-retryable server verdict; v1 has no arbitrary max-attempt flag that can strand a session.
 - A monotonic generation guards every transport callback. Retiring an attempt increments the
-  generation before closing and disposing its transport; late callbacks are ignored.
+  generation before stopping its Keepalive, disposing its handler, and closing and disposing its
+  transport; late callbacks are ignored.
 - Transport `onError` is diagnostic and does not independently schedule reconnect. Terminal
-  `onClose`, connect timeout, handshake failure, keepalive timeout/error, or rejected keepalive write
-  retires the attempt and schedules at most one reconnect. The timeout handler stops keepalive before
-  it can continue with a fresh round.
+  `onClose`, connect timeout, handshake failure, or keepalive timeout/error
+  retires the attempt and schedules at most one reconnect. Keepalive is already terminal before its
+  failure notification; recovery cannot race an automatic next round.
 - Incoming packets are size-checked, parsed, and validated before any application listener runs.
-  A malformed, oversized, binary, pre-ready application, or unsupported-version packet is a protocol
-  error: retire the transport, stop automatic retry, return to `idle`, and notify `onError`.
+  Malformed, oversized, binary, or unsupported-version packets, and application messages or ping/pong
+  before readiness, are protocol errors: retire the transport, stop automatic retry, return to `idle`, and notify `onError`.
 - Listener exceptions are caught and logged independently. They never become protocol/transport
   failures and never stop delivery to later listeners.
-- Attempt retirement disposes keepalive and the watchdog before closing the transport. Their late
-  events cannot act on a newer generation.
+- Attempt retirement invalidates the generation, stops Keepalive to abort any probe, then disposes
+  the internal protocol handler before closing transport. The handler belongs to this attempt only;
+  late settlement cannot affect a new one. Install the handler before notifying `onReady` listeners.
 - `stop()` is terminal and idempotent: clear intent, transport, timers, attempt-local liveness,
   FSM-delays runner, and listeners. Methods are inert afterward and `send()` returns `false`.
 
@@ -314,12 +333,20 @@ any active state --reconnect--> connecting (replace immediately, no delay)
 
 `send()` succeeds only in `ready`. It JSON-encodes one `message` packet, rejects a packet above
 `maxMessageBytes`, and hands the text to the current transport. `transport.send()` returns no value
-on acceptance and throws on rejection. The client re-arms the attempt-local watchdog only after that
-call returns successfully, then returns `true` from its own public `send()` method. It catches
-transport write exceptions and reports them as the cause of a `send` error. Its public method returns
-`false` when not ready, serialization fails, the packet is oversized, or the transport rejects the
-write; rejected writes never extend the idle deadline. Internal handshake and keepalive writes use
-the same exception handling; failed control writes retire the attempt according to lifecycle policy.
+on acceptance and throws on rejection. The client's public `send()` returns `true` when that write
+is accepted, even if the attempt retires synchronously during the call. It catches write exceptions
+and reports them as the cause of a `send` error. It returns `false` when not ready, serialization
+fails, the packet is oversized, or the transport rejects the write. Neither accepted nor rejected
+writes call Keepalive or extend idleness. Handshake write failures retire the attempt
+through connection policy. The internal handler uses an attempt-bound control writer that returns
+void on admission and throws on failure; it never sends controls through the application's `message`
+envelope. Control writes do not report activity either. A probe write failure rejects its promise;
+Keepalive reports it through `onFail`. A custom probe likewise converts failed admission into rejection.
+
+A server-pong reply write failure goes directly to RealtimeClient's guarded retirement path, including
+when client probing is disabled or custom. The handler never reconnects by itself. All attempt failures
+share one generation-guarded recovery decision. An application send error alone does not schedule a
+second recovery loop.
 
 The client has **no application outbound queue**. It cannot know whether a request is idempotent,
 whether a presence update is obsolete, or whether a chat message belongs in a durable outbox. It also
@@ -337,10 +364,9 @@ disconnected are not silently reconstructed.
 
 In v1:
 
-- transport-neutral bounded JSON packets, connect/ready/error and ping/pong control packets;
+- transport-neutral bounded JSON packets and connect/ready/error/ping/pong control packets;
 - four-state FSM, connect timeout, automatic reconnect, capped jitter, force reconnect;
-- attempt-local idle watchdog and protocol-configured correlated keepalive with a separate response
-  deadline;
+- default attempt-local keepalive with idle/deadline watchdogs, an internal protocol handler, and an optional custom probe;
 - immediate ready-state liveness probing without waiting for the idle scheduler;
 - stale-generation protection, sendability guard, deterministic injected transport/time/random;
 - observable snapshots plus ready/message/error subscriptions;
@@ -354,15 +380,31 @@ Not in v1:
 - auth refresh/session ownership, browser online/visibility/sleep detection, RPC, presence, or chat.
 
 `auth-session` owns credentials. `net-monitor` detects online/visibility/wake and calls the public
-`probeNow()` or `reconnect()` seam; it does not mutate internal timers. `rpc` owns request/response
-semantics. Domain packages own resynchronization and durable delivery.
+`probeNow()` or `reconnect()` seam; it does not mutate internal timers. `rpc` owns application
+request/response semantics. Domain packages own resynchronization and durable delivery.
 
 ## Validation and testing
 
-Construction validates finite positive limits, `keepalive.idleMs`, `keepalive.deadlineMs`, reconnect
-bounds, and callable injections. Concrete adapter construction and security are validated by that
-adapter. Every packet shape is validated at the realtime protocol boundary. Errors expose safe
-categories and causes to callers; packets, auth, adapter options, and payloads are never logged.
+Construction validates resource limits, reconnect bounds, and effective keepalive durations before
+any transport is created. For duration validation, construct a temporary, unstarted `Keepalive` with
+the resolved durations and a placeholder probe, call `stop()`, and discard it. Its watchdog
+constructors run the existing checks; construction and disposal without starting call neither the
+scheduler nor the probe. This adds no public validation helper or duplicate numeric rules.
+
+This temporary instance is never used for a connection. Each ready attempt still creates its own
+Keepalive with the actual attempt-bound probe. With `keepalive: false`, skip the temporary instance
+because there are no keepalive durations to validate.
+
+A supplied custom `keepalive.probe` other than `undefined` must be a function: reject invalid
+configuration with TypeError at construction. Omitted/undefined selects the built-in probe.
+Keepalive itself retains its typed contract and reports invocation errors when a check runs.
+
+Concrete adapter construction/security belong to that adapter. Realtime validates all protocol
+packets, including ping/pong IDs; custom handlers validate their application probe payloads. Errors
+expose safe categories and causes. Realtime does not log protocol packets, auth, adapter options,
+or payloads. Forward the configured logger to Keepalive so listener failures retain their original
+cause; the application chooses diagnostics and any redaction. Recovery must complete before calling
+external error listeners, so a listener exception cannot leave a failed attempt active.
 
 Required public-behavior tests:
 
@@ -372,23 +414,33 @@ Required public-behavior tests:
   retry; diagnostic transport errors alone do not start another retry path;
 - deterministic capped jitter and reset only after ready;
 - stale open/message/error/close callbacks from a retired transport do nothing;
-- ready entry and every valid incoming/accepted outgoing packet arm only the current watchdog;
-- first idle requests one correlated ping; accepted ping re-arms the watchdog without moving the
-  response deadline; matching pong is consumed and clears that deadline;
-- response-deadline expiry reports the timed-out correlation, then realtime stops keepalive before
-  its automatic next round and reconnects exactly once;
-- ready `probeNow()` requests a ping immediately, repeated calls preserve a pending probe, and calls
+- ready entry creates the current handler and starts keepalive by default; only validated incoming
+  packets report `activity()`; periodic outbound writes cannot defer the first probe or its deadline;
+- first idle invokes one fresh probe; activity while awaiting it does not extend the deadline;
+  fulfillment cancels that deadline and starts a fresh idle window;
+- deadline expiry, rejection, or synchronous throw terminally fails Keepalive and reconnects once,
+  including when the failure handler awaits recovery;
+- ready `probeNow()` invokes the injected probe immediately, repeated calls preserve pending work, and calls
   outside ready or with keepalive disabled are inert;
-- back-to-back or re-entrant ready probes coalesce into one keepalive ping without a client-side
-  queue;
-- peer ping receives a matching pong through the generation-guarded internal send path;
-- rejected keepalive writes fail the current attempt without re-arming its watchdog;
+- back-to-back or re-entrant ready probes coalesce into one operation without a client-side queue;
+- omitted keepalive options and `{}` use the built-in probe; a custom probe replaces only local
+  checks; invalid durations and non-function custom probes throw before transport creation;
+- server pings always receive matching pongs with default, disabled, and custom client probing;
+  controls never reach application listeners, including unmatched/late pongs;
+- matching is installed before write; only a matching pong fulfills the default probe, never a
+  server ping or wrong ID; re-entrant replies cannot lose the result;
+- server-reply write failures retire exactly once, including with `keepalive: false` or a custom probe;
+- custom probes can exchange and validate payloads through the ordinary message seam;
+- retirement aborts pending requests and disposes the handler before transport replacement;
+  late settlement cannot recover or fail a newer generation; old handlers cannot write;
+- rejected probe requests fail the current attempt without leaving a liveness timer armed;
 - post-sleep recovery probes immediately through `net-monitor`; the configured response deadline or
   confirmed network replacement then follows the ordinary reconnect path;
 - retryable versus non-retryable `connect_error`;
 - malformed, oversized, binary, unsupported-version, and pre-ready packets fail closed;
 - no application send queue; a transport write exception is caught and reported, and the client's
-  public `send()` returns false without re-arming the watchdog;
+  public `send()` returns false on rejection and true on admission even if synchronous retirement
+  follows; neither path reports liveness activity;
 - listener failure isolation and idempotent terminal `stop()`;
 - snapshot reference stability between FSM commits.
 
@@ -416,22 +468,22 @@ create ambiguous ownership. The accepted transport boundary is one physical atte
 
 **Reuse Ringotel's class graph.** Rejected as a package blueprint. Its behavior is valuable evidence,
 but its transport/effects/notifier/backoff/keepalive/watchdog/factory split and eight states reflect an
-existing application's history and orchestration. Bazario keeps only two bounded primitives:
-`IdleWatchdog` owns one inactivity timer and `Keepalive` owns one response-deadline timer and one
-protocol round at a time. `RealtimeClient` still owns the four-state lifecycle, wiring, arming policy,
-and every transport effect.
+existing application's history and orchestration. Bazario composes one liveness orchestrator over
+a reusable timer: `Keepalive` owns two `IdleWatchdog` instances and one promise probe at a time.
+`RealtimeClient` owns the four-state connection lifecycle, inbound-activity classification, guarded
+writes, and recovery. No timer coordination leaks into the parent's integration contract.
 
 **Fixed client-initiated ping interval.** Rejected. It sends redundant traffic on an already-active
 connection and synchronized clients can remain in lockstep. A one-shot watchdog moves the probe out
-after every accepted traffic item. Server-initiated pings are still answered through the configured
-keepalive adapter.
+after each validated incoming packet. Outgoing-only traffic does not defer probing. Server-initiated pings are always answered by the internal
+protocol handler while ready, independently of client probing configuration.
 
 **Let keepalive or the watchdog close the transport.** Rejected. They cannot prove that a callback
 still belongs to the current attempt. Only `RealtimeClient` owns generation-guarded retirement and
 backoff.
 
 **Copy Ringotel's full verification cadence into keepalive v1.** Deferred. Its `probeNow()`
-invariant—do not replace an outstanding correlation—and a distinct response deadline are retained.
+invariant—do not replace a pending probe—and a distinct deadline are retained.
 Its random idle window, configurable unanswered-ping budget, direct transport access, and close
 callback are not required for the first reusable contract and would duplicate inactivity or
 lifecycle policy.
@@ -466,10 +518,11 @@ Tradeoffs:
 ## Next steps
 
 1. Accept this ADR with `Transport.md`, `IdleWatchdog.md`, and `Keepalive.md`.
-2. Use the implemented `transport` package (contract and all three adapters), then implement idle
-   watchdog and keepalive packages with their contract tests.
-3. Scaffold `packages/realtime/` with protocol types/validators, the four-state client, stub-transport
-   tests, and attempt-local liveness composition.
+2. Use the implemented transport adapters and keepalive orchestrator (with its internal watchdogs)
+   through their public contracts.
+3. Scaffold `packages/realtime/` with envelope types/validators, the four-state client, stub-transport
+   tests, the internal abort-aware ping/pong handler, and attempt-local liveness composition.
+   Keep the handler private until another consumer needs its contract.
 4. Implement from the public-behavior tests above, then add changesets at `0.1.0`.
 5. Add the matching protocol endpoint to `examples/server` and prove network/sleep recovery.
 6. Design `@bazariodev/rpc` over only `send`, `onMessage`, and `onReady`; do not reach into transport.
@@ -485,7 +538,7 @@ Tradeoffs:
 - Socket.IO delivery guarantees: <https://socket.io/docs/v4/delivery-guarantees>
 - Bazario transport boundary: `Transport.md`
 - Bazario idle timer boundary: `IdleWatchdog.md`
-- Bazario ping/pong boundary: `Keepalive.md`
+- Bazario liveness probe boundary: `Keepalive.md`
 - Bazario hierarchy and responsibility guide:
   [realtime client hierarchy](../../../docs/realtime-client-hierarchy.html)
 - Ringotel reference: `/Users/alexus/Projects/Ringotel/web-app/src/shared/lib/realtime` and
@@ -495,11 +548,12 @@ Tradeoffs:
 
 `@bazariodev/realtime` is one small logical JSON client with four states: `idle`, `connecting`,
 `ready`, and `backoff`. It composes over the one-attempt `@bazariodev/transport` port and borrows
-Socket.IO's handshake, intent, cleanup, and reconnect discipline. Attempt-local `IdleWatchdog` and
-`Keepalive` primitives provide an idle-triggered correlated probe with a distinct response deadline,
-without receiving the transport. The same keepalive can be probed immediately after wake or
-foreground return without involving the watchdog scheduler.
+Socket.IO's handshake, intent, cleanup, and reconnect discipline. Attempt-local `Keepalive` owns
+inactivity monitoring and abortable promise probes through two internal watchdogs. The internal
+protocol handler supplies the default probe and always handles ping/pong while ready. Custom probes
+replace only the client check; disabling keepalive preserves server-ping replies.
+Keepalive fails terminally before notifying the parent and supports immediate wake/foreground checks.
 Concrete platform mechanics remain below and queues, acknowledgements, retries, and recovery remain
-above. `RealtimeClient` is the sole logical connection-lifecycle, watchdog-arming, and transport-effect
-owner; `auth-session`, `net-monitor`, `rpc`, and domain synchronization compose around it instead of
-being absorbed into it.
+above. `RealtimeClient` is the sole logical connection-lifecycle and transport-effect owner;
+`auth-session`, `net-monitor`, `rpc`, and domain synchronization compose around it instead of being
+absorbed into it.

@@ -17,7 +17,7 @@ The reusable concern is only timing:
 3. if no later activity arrives before the deadline, subscribers receive one idle notification.
 
 The watchdog cannot decide what activity means. For a realtime connection that decision belongs to
-`RealtimeClient`, which sees validated incoming frames and accepted outgoing writes. The watchdog
+`RealtimeClient`, which reports validated incoming packets as liveness activity. The watchdog
 also cannot decide whether idleness should send a ping, refresh a lease, log a diagnostic, close a
 transport, or reconnect. Those are consumer policies.
 
@@ -115,36 +115,19 @@ not throw.
 
 ## Ownership and realtime composition
 
-`RealtimeClient` owns the definition of socket activity and therefore owns every call to `watchdog.arm()`.
-The selected v1 policy is:
-
-- entering `ready` calls `watchdog.arm()` to start observation for that transport attempt;
-- every valid incoming control or application packet calls `watchdog.arm()`;
-- every outgoing control or application packet accepted by `transport.send()` calls
-  `watchdog.arm()`;
-- rejected writes and malformed packets do not extend the deadline;
-- leaving `ready` cancels and disposes the attempt-local watchdog.
-
-This is an **idle-connection** policy, not proof that every write reached the peer. Frequent traffic
-in either direction intentionally postpones keepalive probes. A later product that needs
-inbound-only liveness can choose a narrower activity policy without changing `IdleWatchdog`.
-
-The watchdog never receives a transport or realtime client reference:
+`RealtimeClient` reports validated incoming packets to `Keepalive`. Outgoing writes do not prove
+peer reachability and do not refresh its idle window. Keepalive owns both watchdogs:
 
 ```text
-accepted inbound/outbound traffic
-              ↓
-       RealtimeClient ──arm()────> IdleWatchdog
-              ↑                         │
-              └──── onIdle subscriber ──┘
+RealtimeClient --activity/probeNow--> Keepalive
+                                       ├─ IdleWatchdog(idleMs)
+                                       └─ IdleWatchdog(deadlineMs)
 ```
 
-For keepalive composition, `RealtimeClient` wires the idle event to `Keepalive.handleIdle()`. The
-watchdog does not import or construct keepalive, and keepalive does not arm the watchdog. These are
-two independent reusable abstractions: `IdleWatchdog` may notify unrelated consumers, while
-`Keepalive` may be driven by another idle source or by its immediate `probeNow()` input. Once a ping
-has started, keepalive's own response deadline decides whether its matching pong arrived; later
-re-arming the watchdog does not move that per-ping deadline.
+The watchdog itself has no keepalive, transport, or realtime dependency. Keepalive uses its public
+`arm`, `cancel`, `onIdle`, and `stop` methods. Other consumers can define different activity policies
+for unrelated resource timers. The complete connection-monitoring policy lives in
+[Keepalive](Keepalive.md#lifecycle-and-timing); parent composition lives in [Realtime](Realtime.md).
 
 ## Scope
 
@@ -161,7 +144,7 @@ Not in v1:
 - intervals, cron, pause/resume, persisted deadlines, or background-worker scheduling;
 - dynamic per-call durations, warning thresholds, retry budgets, or multiple idle stages;
 - resource inspection, traffic classification, ping/pong, close, reconnect, or recovery policy;
-- keepalive imports or knowledge; consumers compose the two abstractions structurally;
+- keepalive imports or knowledge; dependency direction is keepalive to watchdog;
 - FSM state, snapshots, React bindings, or a generic event-emitter framework.
 
 ## Validation and testing
@@ -186,8 +169,9 @@ Required public-behavior tests:
 - invalid `idleMs` values fail construction with either scheduler;
 - both inclusive timing bounds are preserved with platform and injected schedulers.
 
-The realtime integration test must separately prove that `RealtimeClient`, rather than the watchdog
-or keepalive, calls `arm()` for ready entry and accepted traffic.
+The realtime integration test must separately prove that `RealtimeClient` reports only valid or
+validated incoming traffic to keepalive and disposes it with the attempt. Keepalive's tests prove ownership of
+both watchdogs and that activity cannot extend a pending probe deadline.
 
 ## Alternatives considered
 
@@ -223,12 +207,12 @@ Tradeoffs:
 ## Next steps
 
 1. Release the implemented `packages/idle-watchdog/` through its minor changeset (`0.0.0` → `0.1.0`).
-2. Implement the separate `Keepalive.md` contract.
-3. Compose one attempt-local watchdog inside `RealtimeClient` and test ownership of `arm()` calls end to end.
+2. Release the keepalive orchestrator, which composes two watchdog instances internally.
+3. Integrate one keepalive per ready `RealtimeClient` attempt and test traffic and recovery ownership.
 
 ## Summary
 
 `@bazariodev/idle-watchdog` is a one-shot, re-armable inactivity timer. Consumers explicitly call
 `arm()` when activity occurs and subscribe through `onIdle`; the watchdog only owns timer mechanics
-and notification. In realtime, `RealtimeClient` alone classifies traffic, arms the timer, and
-decides what an idle or failed connection means.
+and notification. Keepalive owns inactivity and response-window orchestration. `RealtimeClient`
+classifies incoming traffic and owns the connection lifecycle and recovery policy.

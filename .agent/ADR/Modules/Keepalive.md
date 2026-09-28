@@ -1,420 +1,212 @@
-# ADR: Keepalive Module
+# ADR: Keepalive Liveness Orchestrator
 
-- Status: Proposed
+- Status: Accepted
 - Date: 2026-09-13
 - Revised: 2026-09-27
 
 ## Context
 
-An idle socket may still look open after a network break or laptop sleep. A small ping/pong exchange
-can test the quiet connection, but transport access, inactivity timing, packet shape, and reconnect
-policy are separate concerns.
-
-The keepalive abstraction should know only the ping/pong conversation:
-
-1. an idle signal requests a correlated ping;
-2. an explicit immediate check can request the same probe without waiting for idleness;
-3. a matching pong completes the pending probe;
-4. a configurable response deadline reports a missing pong;
-5. after reporting a timeout, another correlated round starts unless an owner stopped the instance;
-6. an optional peer ping is converted into a pong request.
-
-It must not own a transport, send directly, arm an idle timer, close a socket, or reconnect a
-client. `RealtimeClient` owns those effects because it owns the current transport attempt and is the
-only component that can guard them against stale generations.
+A connection can appear open after its peer becomes unreachable. A liveness monitor needs an idle
+window, a fresh check, and a bounded wait. Packet construction, correlation, response matching, and
+validation are already responsibilities of a request/protocol handler. Repeating them in Keepalive
+couples scheduling to the wire exchange and adds a second request/response implementation.
 
 ## Decision
 
-Build **`@bazariodev/keepalive`** as a dependency-free, protocol-configurable state-and-event
-abstraction.
+Implement `@bazariodev/keepalive` as an attempt-local orchestrator over two `IdleWatchdog` instances:
+one for `idleMs`, one for `deadlineMs`. Inject `probe(signal): Promise<void>` as the complete liveness
+check. Keepalive invokes it, observes settlement, and aborts on terminal failure or disposal.
 
-`Keepalive` receives three explicit inputs:
+The parent reports validated incoming traffic and handles failure recovery. The request/protocol handler owns
+packet shapes, unique correlation, response validation, send errors, and peer-ping replies. Keepalive
+and its parent coordinate through promise settlement; the parent delegates protocol work to the handler.
 
-- `handleIdle()` from an `IdleWatchdog.onIdle` subscription;
-- `probeNow()` from a wake/visibility monitor, a diagnostic action, or any other consumer that needs
-  an immediate liveness check;
-- `receive(message)` for validated incoming protocol packets.
+This supersedes the packet-facing `protocol`, `send`, and `receive` contract and its packet/correlation
+generics. Autonomous idle scheduling remains; Keepalive has no transport or reconnect dependency.
 
-It publishes a single typed event stream:
-
-- `send` asks a subscriber to write a configured ping or pong packet;
-- `timeout` reports that an earlier ping had no matching pong by its configured deadline;
-- `error` reports a throwing scheduler or protocol adapter and makes the instance terminal.
-
-The package owns one response-deadline timer for its pending ping. It does not own the quiet-period
-timer that decides when the first probe is needed. `RealtimeClient` wires the watchdog to
-`handleIdle()`, subscribes to keepalive events, performs requested transport writes, and owns every
-watchdog arming. `probeNow()` starts the ping path synchronously; it does not schedule a zero-delay
-timer.
-
-`Keepalive` has no dependency on `IdleWatchdog`. Idle-driven composition is one use case, not a
-package relationship: another consumer may drive keepalive from a fixed scheduler, a manual command,
-or only `probeNow()`.
-
-## Contract
-
-The protocol adapter owns packet shape and correlation. Keepalive treats both as opaque values.
+## Public contract
 
 ```ts
-type Unsubscribe = () => void;
-
-type KeepaliveScheduler = Readonly<{
-  setTimeout: (callback: () => void, delayMs: number) => unknown;
-  clearTimeout: (handle: unknown) => void;
-}>;
-
-type KeepaliveProtocol<TIncoming, TOutgoing, TCorrelation> = Readonly<{
-  createPing: () => Readonly<{
-    message: TOutgoing;
-    correlation: TCorrelation;
-  }>;
-  isPong: (message: TIncoming, correlation: TCorrelation) => boolean;
-  createPong?: (
-    message: TIncoming,
-  ) => Readonly<{ message: TOutgoing }> | null;
-}>;
-
-type KeepaliveEvent<TOutgoing, TCorrelation> =
-  | Readonly<{
-      type: 'send';
-      kind: 'ping' | 'pong';
-      message: TOutgoing;
-    }>
-  | Readonly<{
-      type: 'timeout';
-      correlation: TCorrelation;
-    }>
+type KeepaliveProbe = (signal: AbortSignal) => Promise<void>;
+type KeepaliveFailure =
+  | Readonly<{ type: 'timeout' }>
   | Readonly<{ type: 'error'; error: unknown }>;
 
-type KeepaliveLogger = Readonly<{
-  error: (message: string, metadata?: unknown) => void;
-}>;
-
-type KeepaliveOptions<TIncoming, TOutgoing, TCorrelation> = Readonly<{
+type KeepaliveOptions = Readonly<{
+  idleMs: number;
   deadlineMs: number;
-  protocol: KeepaliveProtocol<TIncoming, TOutgoing, TCorrelation>;
-  scheduler?: KeepaliveScheduler;
-  logger?: KeepaliveLogger;
+  probe: KeepaliveProbe;
+  scheduler?: KeepaliveScheduler; // IdleWatchdog's TimeoutScheduler.
+  logger?: KeepaliveLogger;       // Non-throwing error(message, metadata?) port.
 }>;
 
-class Keepalive<TIncoming, TOutgoing, TCorrelation> {
-  constructor(
-    options: KeepaliveOptions<TIncoming, TOutgoing, TCorrelation>,
-  );
-
-  handleIdle(): void;
+class Keepalive {
+  constructor(options: KeepaliveOptions);
+  start(): void;
+  activity(): void;
   probeNow(): void;
-  receive(message: TIncoming): boolean;
-  subscribe(
-    listener: (event: KeepaliveEvent<TOutgoing, TCorrelation>) => void,
-  ): Unsubscribe;
-
+  onFail(listener: (failure: KeepaliveFailure) => void): () => void;
   stop(): void;
   [Symbol.dispose](): void;
 }
 ```
 
-Example protocol configuration for the realtime v1 JSON packets:
+The canonical declarations are in `packages/keepalive/src/index.d.ts`. The callback starts a fresh
+operation on every invocation. Fulfillment means that the consumer has validated liveness of the
+current connection. Rejection or synchronous throw means failure, with the original cause preserved.
+A `Promise<void>` carries no protocol data or boolean verdict across this boundary.
 
-```ts
-const protocol: KeepaliveProtocol<ServerPacket, ClientPacket, string> = {
-  createPing: () => {
-    const id = createRequestId();
-    return { message: { type: 'ping', id }, correlation: id };
-  },
-  isPong: (packet, id) => packet.type === 'pong' && packet.id === id,
-  createPong: (packet) =>
-    packet.type === 'ping'
-      ? { message: { type: 'pong', id: packet.id } }
-      : null,
-};
-```
+Local write admission, a cache hit, a request over a different transport, or success after reconnect
+cannot establish this connection's liveness. The probe must not retry across attempts. The consumer
+must register its response matcher before sending so an immediate response is not lost.
 
-`createPing()` returns correlation separately from the wire packet, so keepalive never guesses an
-`id` field or assumes JSON. `createPong()` is optional for protocols in which this endpoint never
-answers peer-initiated probes.
-
-## State and behavioral rules
-
-The internal state is deliberately limited to one pending correlation, one deadline handle and
-generation, one synchronous transition guard, and terminal flags:
+## Lifecycle and timing
 
 ```text
-quiet --handleIdle/probeNow-----------> creating-ping
-creating-ping --store/arm/enter-------> awaiting-pong (then notify send/ping)
-creating-ping --handleIdle/probeNow---> creating-ping (no-op)
-awaiting-pong --matching pong/clear---> quiet
-awaiting-pong --deadline/disarm-------> notifying-timeout
-notifying-timeout --still active------> creating-ping (fresh round)
-notifying-timeout --stop--------------> stopped
-any active state --internal error-----> failed
-any state --stop----------------------> stopped
+constructed --start--------------------> monitoring-idle
+monitoring-idle --activity-------------> monitoring-idle (fresh idle window)
+monitoring-idle --idle/probeNow--------> awaiting-promise
+awaiting-promise --fulfillment---------> monitoring-idle (fresh idle window)
+awaiting-promise --activity/probeNow---> awaiting-promise (unchanged)
+awaiting-promise --deadline-----------> failed
+active --rejection/throw/error--------> failed
+any --stop----------------------------> stopped
 ```
 
-- on the first idle signal, `createPing()` runs once; keepalive stores its correlation, arms the
-  response deadline, enters `awaiting-pong`, and then publishes the `send/ping` event. A synchronous
-  matching pong from a send subscriber can therefore complete the round correctly;
-- the synchronous transition guard is set **before** invoking configurable `createPing()` and remains
-  set through `send/ping` notification. Re-entrant `handleIdle()` or `probeNow()` calls from the
-  adapter or a subscriber therefore coalesce into the in-progress request;
-- `probeNow()` follows the same start path immediately when quiet; it does not wait for the idle
-  watchdog or implement immediacy as a zero-delay timer;
-- `handleIdle()` and `probeNow()` are idempotent while awaiting a pong. They preserve the outstanding
-  correlation and publish no second ping, because replacing it would turn a valid pong already in
-  flight into stale evidence;
-- keepalive arms the deadline before publishing `send/ping`, so even a missing or inert send
-  subscriber cannot leave an unbounded pending round. Keepalive does not assume the packet was
-  accepted; the subscriber still owns the write result and resource-failure policy;
-- while a probe is pending, only `isPong(message, correlation) === true` completes it. A match clears
-  the timer and pending correlation before `receive()` returns;
-- `receive()` returns `true` only for a matching pong or a peer ping handled by `createPong()`; control
-  packets consumed by keepalive are not delivered as application messages;
-- unrelated traffic is not consumed, does not clear the pending correlation, and does not move its
-  response deadline. A composing `RealtimeClient` may still arm `IdleWatchdog` for that traffic,
-  but the watchdog controls only when a quiet connection first needs a probe;
-- when the response deadline expires, keepalive first disarms and invalidates that timer, removes the
-  expired correlation from pending state, and publishes one `timeout` event containing the expired
-  correlation;
-- timeout subscribers run before any continuation. After the notification snapshot finishes,
-  keepalive starts one fresh correlated round synchronously if it is still active. A subscriber can
-  call `stop()` to prevent that next ping;
-- a subscriber that needs asynchronous recovery must call `stop()` before its first `await`; promises
-  returned by listeners are not awaited and do not postpone continuation;
-- `handleIdle()` and `probeNow()` re-entered during timeout notification coalesce into that automatic
-  next round rather than starting an extra one;
-- each unanswered round therefore produces at most one timeout and, while not stopped, one subsequent
-  ping with a new correlation. There is never more than one deadline handle or pending correlation;
-- `createPong()` is evaluated only after the packet fails to match the pending pong, then a non-null
-  result publishes `send/pong` without changing the pending round or its deadline;
-- subscribers run in registration order over a snapshot; one throwing subscriber is logged and does
-  not block later subscribers or the post-timeout continuation check;
-- all public inputs and notifications are synchronous and contain no `await`, so separate event-loop
-  calls are serialized. The transition guard covers the only same-stack concurrency: re-entrancy;
-- `stop()` is terminal and idempotent, clears and invalidates the deadline timer, pending correlation,
-  and subscribers, and makes later inputs inert.
+- Construction is inert. Subscribe before start. Activity and probes are inert before start and after
+  termination. `start()` is idempotent and never moves an existing idle window.
+- Before invoking consumer code, store a fresh AbortController, suspend idle monitoring, and arm the
+  deadline. Pending identity also coalesces repeated and re-entrant probes without a queue.
+- Attach fulfillment and rejection handlers even if the callback synchronously stops the monitor
+  before returning. No late rejection is left unhandled by Keepalive.
+- Only the deadline watchdog runs while a probe is pending. Ordinary traffic cannot extend it.
+- Fulfillment observed by the promise reaction cancels the deadline, clears pending state, and
+  starts a fresh idle window. Already fulfilled promises still use asynchronous reactions.
+- Probe rejection, synchronous throw, or timeout is terminal. Invalidate the
+  pending identity, stop both watchdogs, and abort before notifying subscribers. No next probe runs.
+- `stop()` and disposal are silent, terminal, and idempotent. Late settlement and queued timer callbacks
+  cannot revive an instance. Create a fresh monitor for a new connection attempt.
 
-There is no probe queue. Multiple immediate checks represent the same liveness question, so they are
-coalesced into one outstanding probe. Queueing would send redundant probes after the first answer and
-would require expiry/cancellation semantics without adding evidence.
+`idleMs` determines when to ask about liveness; `deadlineMs` bounds the asynchronous wait for its
+answer. A quiet dead connection is detected after approximately their sum, plus scheduling delay.
+`probeNow()` skips the idle wait. There is no fixed interval or unanswered-probe retry loop.
 
-If the scheduler or `createPing`, `isPong`, or `createPong` throws, keepalive clears its timer and
-pending state, publishes one `error` event, logs the failure without packet contents, and becomes
-terminal. `RealtimeClient` treats that as a protocol configuration failure for the attempt. The
-keepalive package itself still performs no external resource action.
+Only validated incoming traffic from the monitored connection counts as activity. Local write
+admission is not evidence of peer reachability and must not postpone probes. A send-heavy connection
+with no incoming packets still gets checked after `idleMs`. During a probe, even validated inbound
+traffic leaves its deadline unchanged; only that probe's fulfillment completes the check.
 
-## Ownership and realtime composition
+## Cancellation and deadline ownership
 
-`RealtimeClient` owns all wiring and effects:
+Keepalive owns this probe's deadline. The request handler uses the supplied AbortSignal instead of a
+second request timeout for the same check. Other application requests can have independent timeouts.
+
+The consumer checks an already-aborted signal, removes matchers/listeners on settlement or abort,
+rejects pending work when aborted, and prevents delayed writes after cancellation. Cancellation is
+cooperative: Keepalive can invalidate its own result even if the handler ignores the signal, but
+cannot remove that handler's resources or recall a transmitted request. The handler must not close
+a shared transport. Abort uses the platform's default abort reason; failure classification is
+provided by `onFail`, not inferred from the aborted promise.
+
+Timers do not interrupt synchronous JavaScript and may be delayed by blocking, throttling, or sleep.
+This is a scheduled deadline, not a hard real-time guarantee. Network/wake detection belongs to
+`net-monitor`, which can ask the parent for an immediate probe or reconnect.
+
+## Ownership and integration
 
 ```text
-valid/accepted traffic ───────────────┐
-                                      ↓ arm()
-Transport ← send request ← RealtimeClient → IdleWatchdog
-     │                         ↑              │
-     │ incoming packet         │              │ onIdle
-     └─────────────────────────┤              ↓
-                               └──────── Keepalive ── response deadline
-                                  ↑ probeNow                │
-                         wake / visibility / manual check   └─ timeout
-                                   send / timeout / error events
+RealtimeClient (readiness, attempt generation, traffic, transport, reconnect)
+    ├─ Transport
+    ├─ Internal protocol handler (always present while ready)
+    │     └─ ping/pong matching, peer replies, abort cleanup
+    └─ Keepalive (enabled by default; optional custom probe)
+          ├─ IdleWatchdog(idleMs)
+          ├─ IdleWatchdog(deadlineMs)
+          └─ probe(signal) → internal handler by default
+                              └─ matching + validation → fulfill/reject
 ```
 
-For each ready transport attempt, `RealtimeClient`:
+For each ready attempt the planned RealtimeClient:
 
-1. creates a fresh watchdog and keepalive;
-2. wires `watchdog.onIdle(() => keepalive.handleIdle())`;
-3. subscribes to keepalive events;
-4. arms the watchdog by calling `arm()` on ready entry;
-5. re-arms it after each valid incoming packet and accepted outgoing packet;
-6. passes incoming control packets to `keepalive.receive()`;
-7. writes `send` events through the same generation-guarded internal packet path;
-8. exposes `probeNow()` as a guarded delegation while the attempt is ready;
-9. synchronously stops keepalive and retires the attempt on `timeout`, rejected keepalive writes, or
-   `error`, so that realtime policy prevents the next automatic round;
-10. disposes both instances before closing the transport so late callbacks are inert.
+1. creates an internal protocol handler with this attempt's guarded writer, then one Keepalive
+   unless client probing is explicitly disabled;
+2. subscribes to `onFail`, retiring only the current attempt;
+3. calls `start()` after readiness and subscription setup;
+4. calls `activity()` only for validated inbound traffic; outgoing writes never refresh idleness;
+5. routes protocol/application messages to their owners; Keepalive receives no packets;
+6. delegates ready-state `probeNow()` for wake/manual checks;
+7. invalidates the attempt, stops Keepalive to abort its pending probe, and disposes the handler
+   before replacing or closing transport.
 
-This preserves the higher-level ownership rule: keepalive detects a failed probe, but only
-`RealtimeClient` can decide that the current attempt should enter backoff. Neither keepalive nor the
-watchdog can close or replace a transport.
+Realtime supplies the default probe through its internal ping/pong handler. An optional custom
+`keepalive.probe` replaces only the client-initiated check; `keepalive: false` disables those checks.
+The handler exists in both cases: it always consumes ping/pong control packets before application
+message delivery and answers server pings while ready. A server-reply write failure reaches the
+client's guarded retirement path even when no Keepalive exists.
 
-The observer pattern is intentionally narrow here. There is one event union and unsubscribe-returning
-listeners, not a general event bus, notifier hierarchy, or RxJS dependency.
+The handler is private to the realtime package, with no public export or separate package until a
+second consumer needs it. The planned `rpc` package stays above realtime; no realtime-to-RPC import
+is needed for default liveness. Custom consumers can supply their own abort-aware request adapter.
+Realtime retains protocol validation and attempt ownership; Keepalive remains protocol-neutral.
 
-## Timing and continuation semantics
+Generation guards prevent failure or old request callbacks from affecting a new attempt. The request
+handler must bind each operation to the initiating connection and avoid retry/replay after replacement.
+The first keepalive failure and a later transport close share one guarded recovery path.
 
-`IdleWatchdog.idleMs` and `Keepalive.deadlineMs` have different meanings and different owners:
+## Validation, failures, and subscriptions
 
-```text
-last accepted traffic ── idleMs ──> ping ── deadlineMs ──> timeout notification
-                                      │                         │
-                                      ├─ matching pong → quiet  ├─ stop() → stopped
-                                      │                         └─ still active → fresh ping
-                                      └─ unrelated traffic re-arms only the idle watchdog
-```
+Both durations must be integer milliseconds in `[1, 2_147_483_647]`. Each watchdog validates its own
+value; Keepalive forwards it unchanged and propagates RangeError without duplicate checks.
+Public types require the probe; runtime construction does not duplicate function-shape validation.
+A missing/non-callable probe or a result without callable `then` becomes a terminal `error` failure
+with the original TypeError when the check runs. No constructor shape check is added. Returning no
+promise is neither treated as success nor left waiting for a misleading timeout. An async callback
+must still await request completion and validation: a valid promise alone cannot prove that it did.
 
-A completely silent dead connection is first reported within approximately `idleMs + deadlineMs`,
-plus platform scheduling delay. `probeNow()` skips `idleMs`: it starts the ping synchronously and the
-same `deadlineMs` bounds the answer.
+The scheduler serves both windows, with opaque timer handles. Its methods must not throw, invoke
+callbacks inline, or re-enter Keepalive. Keepalive relies on this contract; behavior with a violating
+scheduler is unsupported. It does not add a separate scheduler-error recovery policy.
 
-After a missed deadline, continuing with a new round is the smallest reusable behavior: it avoids a
-retry counter, retry callback, or second public start method. Each round has a fresh correlation and
-the same deadline. The timeout event is published before continuation, so an owner can synchronously
-stop the keepalive when its policy is to retire a connection. If no owner stops it, an unresponsive
-peer is probed at approximately `deadlineMs` intervals. A matching pong returns the instance to quiet;
-successful rounds do not create a fixed ping interval and the next ordinary probe still requires
-`handleIdle()` or `probeNow()`.
+Failure listeners run synchronously in registration order over a snapshot captured before abort.
+Duplicate functions share one subscription; stale unsubscribe handles cannot remove a later
+registration. Unsubscribe or stop during abort/notification cannot cancel an already committed
+failure's delivery. This lets the owner retire its attempt without hiding the failure from observers.
+Explicit stop before failure remains silent. Late subscriptions are inert; failures are not replayed.
+Synchronous listener exceptions are isolated and passed to the consumer's logger as the original
+error. Listener promises are not awaited. Operation failures reach `onFail` without duplicate logging.
+The optional logger defaults to a no-op and must not throw; consumers supply it for diagnostics.
 
-An unanswered-ping budget, backoff, jitter, and adaptive cadence are intentionally not configuration
-in v1. They are lifecycle policy and can be added only when a concrete consumer needs behavior other
-than "continue until stopped."
+## Scope and alternatives
 
-Browser timer throttling may delay the first idle signal. `net-monitor` still owns visibility,
-online, and sleep/wake detection; on a ready connection it calls `RealtimeClient.probeNow()` rather
-than waiting for the idle window. A confirmed network-generation change may still justify an
-immediate `reconnect()` without probing.
+In v1: autonomous idle scheduling, immediate probes, one pending promise, bounded waiting, cooperative
+cancellation, terminal failure subscriptions, injected scheduler/logger, and disposal. The only
+runtime dependency is `@bazariodev/idle-watchdog`; runtime is plain JavaScript with ESM/CJS builds and
+public `.d.ts`/`.d.cts` declarations.
 
-## Scope
+Outside v1: packet construction/matching/validation, peer replies, transport, reconnect, request
+retry, application delivery guarantees, adaptive cadence, jitter, and RTT metrics.
 
-In v1:
+**Packet-aware Keepalive.** Superseded. Request handlers already own correlation and validation.
+An injected promise keeps that responsibility in one place and works with different protocols.
 
-- configurable ping creation and correlated pong matching;
-- synchronous `probeNow()` for wake, foreground-return, diagnostics, or manual checks;
-- optional peer-ping to pong adaptation;
-- one outstanding probe, one configurable response-deadline timer, and one timeout event per missed
-  round;
-- automatic fresh rounds after timeout until a subscriber stops the instance;
-- a typed `send | timeout | error` subscription stream;
-- listener and protocol-adapter failure isolation;
-- no runtime dependencies.
+**Pre-created promise.** Rejected. Every check must start a fresh operation under a fresh deadline.
 
-Not in v1:
+**Only Promise.race.** Insufficient. Choosing a timeout result does not clean up pending request
+resources. The handler also needs an AbortSignal, and stale settlement must be ignored.
 
-- idle scheduling, watchdog arming, transport access, serialization, logging packet bodies, close, or
-  reconnect;
-- fixed protocol fields, JSON assumptions, request-id generation policy, or authentication;
-- multiple simultaneous probes, configurable retry budgets, retry backoff, jitter, adaptive
-  intervals, latency metrics, or RTT histograms;
-- server lease renewal, application acknowledgements, RPC correlation, or message delivery retry;
-- a generic event bus or observable library.
+**External idle orchestration.** Not selected. Keepalive retains the agreed autonomous scheduling;
+consumers report activity and request immediate probes without coordinating timers themselves.
 
-## Validation and testing
+**Continue after failure.** Rejected. Recovery belongs to the parent; a failed monitor is terminal.
 
-Construction fails fast when `deadlineMs` is non-finite or not greater than zero. The protocol
-callbacks are required functions except optional `createPong`; TypeScript provides the shape
-contract. Runtime construction may validate callable fields for JavaScript consumers without
-inspecting returned packets.
+## Verification and next steps
 
-Required public-behavior tests:
+Public-behavior tests cover idle/activity timing, immediate and re-entrant probes, fresh signals,
+fulfillment/rejection/throw, timeout and abort cleanup, late settlement, stale timer callbacks,
+silent disposal, complete failure delivery through owner cleanup, duration-validation delegation,
+and browser/Worker public types.
+Exhaustive timer bounds and handles remain tested in idle-watchdog.
 
-- first idle stores correlation, arms one deadline, and publishes one configured ping in that order;
-- `probeNow()` publishes the same configured ping immediately when quiet;
-- repeated `probeNow()` while awaiting a pong emits nothing and preserves the original correlation;
-- back-to-back `probeNow()` calls publish once;
-- `probeNow()` or `handleIdle()` re-entered from `createPing()` or a `send/ping` subscriber publishes
-  once and does not recurse;
-- simultaneous `handleIdle()` and `probeNow()` requests coalesce into one pending probe;
-- matching pong is consumed, clears the deadline, and the next idle starts a fresh probe;
-- wrong or late pong is not consumed and does not clear the current probe;
-- unrelated traffic and repeated idle events do not move the pending ping deadline;
-- deadline expiry clears the old round and publishes one timeout with its correlation before sending
-  a new ping with a new correlation;
-- `stop()` from a timeout subscriber prevents the automatic next round;
-- repeated unanswered rounds use exactly one timer and one pending correlation at a time;
-- a stale queued deadline callback after pong, replacement, or stop is ignored;
-- peer ping publishes the configured pong and is consumed;
-- ordinary packets are not consumed;
-- subscriber order, unsubscribe, re-entrant subscription changes, and failure isolation;
-- each throwing scheduler or protocol callback publishes one error and makes later inputs inert;
-- `stop()` clears the deadline, state, and listeners and is idempotent;
-- invalid `deadlineMs` values fail construction.
-
-Realtime integration tests must additionally prove:
-
-- keepalive subscribes to the watchdog through `RealtimeClient` wiring;
-- neither keepalive nor watchdog calls `arm()`;
-- `RealtimeClient` calls `watchdog.arm()` after accepted ping/pong writes and valid incoming traffic;
-- re-arming the watchdog does not move keepalive's pending response deadline;
-- ready `RealtimeClient.probeNow()` delegates immediately, while non-ready or disabled calls are
-  inert;
-- rejected control writes and timeout events retire only the current transport generation;
-- old attempt callbacks cannot send on or retire a newer connection.
-
-## Alternatives considered
-
-**Let keepalive own the idle cadence as well as the pong deadline.** Rejected. `IdleWatchdog` already
-owns the general inactivity question and can serve consumers unrelated to ping/pong. Keepalive owns
-only the deadline created by a ping it has issued.
-
-**Implement immediate probing as `setTimeout(..., 0)` or `watchdog.arm(0)`.** Rejected. A direct
-`probeNow()` input is simpler, deterministic, and does not overload the watchdog's meaning of
-"activity happened". It also avoids a queued zero-delay callback racing with traffic or disposal.
-
-**Queue simultaneous probe requests.** Rejected. They ask the same yes/no liveness question. A
-synchronous in-progress guard plus one pending correlation coalesces them without ordering, expiry,
-or cancellation policy.
-
-**Require a subscriber to call `probeNow()` after every timeout.** Rejected. Continuing automatically
-is a smaller steady-state contract and avoids an external rescheduling loop. Notifying first and
-honoring synchronous `stop()` still leaves lifecycle policy outside keepalive.
-
-**Add Ringotel's random verification interval and unanswered-ping budget.** Deferred. A distinct
-response deadline is retained because it directly bounds each probe. Random cadence and a retry
-budget add policy that the reusable v1 does not need; it continues until an owner stops it.
-
-**Inject the transport and close callback into keepalive.** Rejected. It would let a protocol helper
-act on a stale attempt and duplicate `RealtimeClient` lifecycle ownership.
-
-**Let keepalive arm the watchdog after sending or receiving.** Rejected. Keepalive does not know
-whether the transport accepted a write or whether an incoming packet passed the realtime protocol
-boundary. `RealtimeClient` has the authoritative evidence.
-
-**Treat any incoming packet as the pong or move its deadline.** Rejected. Other traffic may postpone
-the next idle-triggered probe, but only the configured matching response completes this pending one.
-
-**Hard-code `{ type: 'ping' | 'pong', id }`.** Rejected. Shape adaptation is the reusable seam and
-keeps this package independent of the realtime JSON protocol.
-
-## Consequences
-
-Positive:
-
-- keepalive has deterministic protocol state and one injectable deadline timer, with no transport
-  dependency;
-- callers can probe immediately without coupling keepalive to a wake monitor;
-- ping/pong wire shape remains a caller configuration;
-- `RealtimeClient` remains the only owner of transport attempts and watchdog arming;
-- the same component can support JSON, SIP, or another message shape;
-- one correlated probe avoids false success from unrelated packets;
-- same-stack re-entrancy and back-to-back calls cannot create duplicate probes;
-- timeout-before-continuation ordering lets an owner stop without racing a fresh ping.
-
-Tradeoffs:
-
-- composition requires two subscriptions and explicit write/arm handling in `RealtimeClient`;
-- first failure detection takes `idleMs + deadlineMs` for an idle-driven probe and depends on platform
-  timer scheduling;
-- an immediate probe still waits one configured `deadlineMs` for its pong verdict;
-- if no subscriber stops it, a failed peer causes one timeout and one new ping per deadline window;
-- asynchronous timeout handlers must stop synchronously before awaiting if they need to suppress the
-  next round;
-- attempt-local construction is preferred over a reusable `reset()` method, creating a small object
-  per ready transport generation.
-
-## Next steps
-
-1. Accept this ADR together with `IdleWatchdog.md` and the revised `Realtime.md`.
-2. Scaffold `packages/keepalive/` and implement it from the public-behavior tests above.
-3. Add a changeset for `@bazariodev/keepalive` at `0.1.0`.
-4. Add the realtime v1 JSON protocol adapter and generation-guarded integration tests.
-5. Validate idle-driven and immediate wake probes, deadline expiry, and stop-before-continuation in
-   the R2 demo before adding retry budgets or adaptive cadence.
-
-## Summary
-
-`@bazariodev/keepalive` turns idle signals, immediate probe requests, and incoming packets into typed
-ping, pong, timeout, and error events. Packet shape and correlation are configured; transport writes,
-watchdog arming, closing, and reconnecting stay in `RealtimeClient`. `probeNow()` sends immediately
-when quiet, coalesces re-entrant or simultaneous requests, and preserves an existing pending probe. A
-first idle sends one probe; a matching pong clears its configurable deadline. A missed deadline emits
-the expired correlation and starts a fresh round only after subscribers have had the chance to stop
-the instance.
+Future realtime integration must prove ready-only startup, generation-bound request handling,
+inbound-activity reporting, one recovery decision, and cancellation before transport replacement.
+Those client/request-handler implementations are planned, not supplied by this package.

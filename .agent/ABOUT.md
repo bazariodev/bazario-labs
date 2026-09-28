@@ -2,7 +2,7 @@
 
 Bazario Labs is a pnpm workspace for TypeScript SDKs and developer tooling aimed at the UCaaS domain. The repository is positioned around realtime communications use cases such as SIP signaling, chat, telephony, and call-flow orchestration.
 
-This workspace currently contains nine packages:
+This workspace currently contains ten packages:
 
 - `@bazariodev/fsm`: a lightweight, configurable finite state machine library for frontend runtimes, realtime clients, and telephony workflows.
 - `@bazariodev/fsm-effects`: a state-entry effects runner around `@bazariodev/fsm` with `AbortSignal` cancellation, cleanup, and a re-entrancy-safe guarded `send`.
@@ -13,6 +13,7 @@ This workspace currently contains nine packages:
 - `@bazariodev/fsm-inspect`: dev-time transition timelines, logger capture, source recording, and Mermaid export.
 - `@bazariodev/transport`: shared one-attempt transport contract and WebSocket, streaming HTTP, and WebTransport adapters with local write admission and disposal.
 - `@bazariodev/idle-watchdog`: dependency-free one-shot inactivity timer with explicit arming, idle subscriptions, cancellation, and disposal.
+- `@bazariodev/keepalive`: liveness orchestration over two idle watchdogs, with an injected abortable promise probe and one terminal failure notification.
 
 ## Project Scope
 
@@ -54,6 +55,7 @@ The goal of the repository is to provide reusable SDK building blocks for commun
 - `packages/fsm-inspect`: dev-time FSM timeline, logging, recording, and diagram helpers
 - `packages/transport`: shared transport declarations and plain JavaScript WebSocket, HTTP, and WebTransport adapters
 - `packages/idle-watchdog`: plain JavaScript inactivity timer with public declarations and manual-scheduler contract tests
+- `packages/keepalive`: plain JavaScript liveness orchestration over idle-watchdog, with public declarations and manual-scheduler contract tests
 - `packages/*/src`: source code and types; `packages/*/src/__tests__`: package tests
 - `docs`: contributor-facing architecture and responsibility guides
 - `.agent`: agent-facing project context and documentation
@@ -98,4 +100,4 @@ The `@bazariodev/fsm` package is intentionally small and dependency-free. It shi
 
 ## Summary
 
-This repository is a typed SDK workspace for UCaaS-related building blocks. It contains the FSM family and the transport package, with tooling for building, testing, linting, and publishing packages.
+This repository is a typed SDK workspace for UCaaS-related building blocks. It contains the FSM family, transport adapters, an idle watchdog, and keepalive probes, with tooling for building, testing, linting, and publishing packages.

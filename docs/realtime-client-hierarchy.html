@@ -390,6 +390,7 @@
       </p>
       <nav aria-label="Architecture references">
         <ul>
+          <li><a href="keepalive-realtime-guide.html">Interactive keepalive guide</a></li>
           <li><a href="../.agent/ADR/Modules/Transport.md">Transport ADR</a></li>
           <li><a href="../.agent/ADR/Modules/IdleWatchdog.md">Idle Watchdog ADR</a></li>
           <li><a href="../.agent/ADR/Modules/Keepalive.md">Keepalive ADR</a></li>
@@ -402,8 +403,9 @@
     <main>
       <p class="principle">
         <strong>Ownership rule:</strong> transport owns one physical attempt; watchdog owns timer
-        mechanics; keepalive owns ping/pong state; realtime owns watchdog arming, transport effects,
-        and the logical connection across attempts; higher layers own delivery semantics.
+        mechanics; keepalive owns inactivity and promise-probe monitoring; realtime owns inbound-activity
+        classification, transport effects, and the logical connection across attempts; higher layers
+        own delivery semantics.
       </p>
 
       <section aria-labelledby="hierarchy-title">
@@ -445,7 +447,7 @@
               <li class="edge">text frames</li>
               <li class="node">
                 <strong>Realtime server</strong>
-                <span>connect / ready · ping / pong · application messages</span>
+                <span>connect / ready · ping / pong controls · application envelopes</span>
               </li>
             </ol>
             <figcaption>
@@ -459,7 +461,7 @@
             <dl class="supporting-seams">
               <div>
                 <dt>Application composition root</dt>
-                <dd>Chooses an adapter from <code>transport</code> and injects a factory into RealtimeClient.</dd>
+                <dd>Chooses a transport adapter. Client probing uses the internal protocol handler by default; an optional custom probe replaces that check only.</dd>
               </div>
               <div>
                 <dt><code>@bazariodev/auth-session</code></dt>
@@ -477,14 +479,17 @@
                 <dd>Implement RealtimeClient state transitions and deterministic timers.</dd>
               </div>
               <div>
-                <dt><code>@bazariodev/idle-watchdog</code></dt>
-                <dd>Owns one re-armable inactivity timer; it does not classify traffic.</dd>
-              </div>
-              <div>
                 <dt><code>@bazariodev/keepalive</code></dt>
                 <dd>
-                  Owns one configurable idle or immediate ping/pong round and its response deadline;
-                  it never touches the transport.
+                  Owns attempt-local liveness: idle monitoring, an abortable promise probe, a
+                  deadline, and one terminal failure notification.
+                </dd>
+              </div>
+              <div>
+                <dt><code>keepalive</code> → <code>@bazariodev/idle-watchdog</code></dt>
+                <dd>
+                  Two internal watchdogs provide idle and response windows. Keepalive owns arming
+                  and disposal; the timer primitive remains reusable independently.
                 </dd>
               </div>
               <div>
@@ -536,22 +541,22 @@
                 <td>Arms or re-arms on command and emits one idle event without resource policy.</td>
               </tr>
               <tr>
-                <td>Ping/pong conversation</td>
+                <td>Connection liveness monitoring</td>
                 <td><code>Keepalive</code></td>
                 <td>
-                  Creates idle or immediate probes, bounds each pong response, and emits send or
-                  timeout requests.
+                  Arms internal idle and deadline watchdogs, invokes an injected promise probe,
+                  aborts pending work, and terminally reports failure once.
                 </td>
               </tr>
               <tr>
-                <td>Watchdog arming and liveness effects</td>
+                <td>Incoming traffic and connection recovery</td>
                 <td><code>RealtimeClient</code></td>
-                <td>Classifies accepted traffic, re-arms the watchdog, writes probes, and retires attempts.</td>
+                <td>Reports validated incoming activity, binds the built-in or custom probe to the attempt, and owns recovery.</td>
               </tr>
               <tr>
                 <td>Realtime wire protocol</td>
                 <td><code>RealtimeClient</code></td>
-                <td>Defines connect/ready and ping/pong shapes, validates, and delegates probe state.</td>
+                <td>Validates protocol packets. Its internal handler always consumes ping/pong and answers server pings while ready, even with client probing disabled or custom.</td>
               </tr>
               <tr>
                 <td>Credentials and refresh</td>
@@ -590,8 +595,8 @@
             <span>It consumes the transport contract; the application constructs the concrete adapter.</span>
           </li>
           <li>
-            <strong>Liveness helpers stay resource-free</strong>
-            <span>They emit events; only RealtimeClient arms the watchdog or acts on a transport.</span>
+            <strong>Keepalive owns its watchdogs</strong>
+            <span>Realtime supplies guarded writes and inbound activity; only realtime closes or replaces a transport.</span>
           </li>
           <li>
             <strong>RPC stays lifecycle-free</strong>
@@ -647,12 +652,11 @@ type TransportFactory = () =&gt; Transport;</code></pre>
             </p>
           </article>
           <article class="decision">
-            <h3>Added: bounded liveness primitives</h3>
+            <h3>Implemented: liveness orchestration</h3>
             <p>
-              IdleWatchdog owns one inactivity timer; Keepalive owns one protocol round and response
-              deadline at a time. Neither owns traffic classification, socket writes, closing, or
-              reconnecting. Keepalive can also probe immediately without scheduling through the
-              watchdog.
+              Keepalive composes two IdleWatchdogs, awaits one promise probe at a time, and supports
+              immediate probes. Activity never extends a pending probe deadline. Failure stops all
+              monitoring and aborts pending work before notifying the parent; recovery remains with the client.
             </p>
           </article>
           <article class="decision">

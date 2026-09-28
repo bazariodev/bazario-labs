@@ -15,9 +15,12 @@ TypeScript SDKs and tools for the UCaaS domain — realtime, SIP, chat, and tele
 | [`@bazariodev/fsm-inspect`](./packages/fsm-inspect) | Dev-time inspection helpers for transition timelines, logger capture, source commit recording, and Mermaid diagram export. |
 | [`@bazariodev/transport`](./packages/transport) | Shared transport contract and plain JavaScript WebSocket, streaming HTTP, and WebTransport adapters with bounded writes and disposal. |
 | [`@bazariodev/idle-watchdog`](./packages/idle-watchdog) | Dependency-free, re-armable one-shot inactivity timer with explicit activity reporting, idle subscriptions, and disposal. |
+| [`@bazariodev/keepalive`](./packages/keepalive) | Liveness orchestration over idle watchdogs with abortable promise probes, deadlines, and terminal failure notification. |
 
 ## Architecture
 
+- [Keepalive and RealtimeClient guide](./docs/keepalive-realtime-guide.html) — ownership diagrams,
+  interactive timing scenarios, failure handling, and proposed integration code.
 - [Proposed R2 realtime client hierarchy](./docs/realtime-client-hierarchy.html) — module dependencies
   and responsibility boundaries for transport, realtime, RPC, auth, network recovery, and domains.
 

@@ -54,10 +54,11 @@ one attempt. `RealtimeClient` creates a fresh instance for every initial connect
 | local write admission/backpressure signal | concrete transport adapter | RPC or domain packages |
 | connection intent and observable lifecycle | `RealtimeClient` | transport |
 | connect timeout and reconnect backoff | `RealtimeClient` | transport, `net-monitor` |
-| connect/ready and ping/pong protocol | `RealtimeClient` | transport |
+| connect/ready and message envelopes | `RealtimeClient` | transport |
+| liveness request/response matching and validation | internal realtime protocol handler by default; custom probe owner when supplied | transport, Keepalive |
 | authentication packet and protocol validation | `RealtimeClient` | transport |
 | online/visibility/sleep detection | `net-monitor` | transport, `RealtimeClient` |
-| correlation, acknowledgement, timeout, safe retry | `rpc` | transport, `RealtimeClient` |
+| application correlation, acknowledgement, timeout, safe retry | `rpc` | transport, `RealtimeClient` |
 | durable outbox, deduplication, state resync | domain package | transport, `RealtimeClient`, `rpc` |
 
 The ownership rule is simple: **transport owns one physical attempt; realtime owns the logical
@@ -93,7 +94,7 @@ type TransportFactory = () => Transport;
 
 The contract intentionally has no `connect()`, `reconnect()`, `disconnect()`, `ready`, retry policy,
 liveness policy, or message subscriptions. Traffic resets and liveness effects belong to the owner
-that spans attempts; timer mechanics and ping/pong state compose behind it.
+that spans attempts; timer mechanics and promise-probe monitoring compose behind it.
 
 ### Adapter obligations
 
@@ -302,7 +303,7 @@ Implemented: `packages/transport/`, containing the shared contract, all three ad
 declarations, consumer-interface checks, and behavioral tests. The initial `0.1.0` release is staged
 through Changesets.
 
-1. Implement `IdleWatchdog.md` and `Keepalive.md` before composing attempt-local liveness.
+1. Compose the implemented keepalive orchestrator, which owns its internal idle watchdogs.
 2. Inject `TransportFactory` into `RealtimeClient` and prove reconnect with a stub transport.
 3. Validate the HTTP framing and WebTransport stream contract against the deployment's server.
 
@@ -310,7 +311,7 @@ through Changesets.
 
 `@bazariodev/transport` contains one physical-attempt contract and its platform adapters, starting
 with WebSocket, HTTP, and WebTransport. It does not own logical connection behavior. `RealtimeClient` composes over the
-port and remains the single owner of readiness, handshake, traffic-reset policy, liveness effects,
-reconnect, and state across attempts. `IdleWatchdog` and `Keepalive` supply only timer and ping/pong
-mechanics. See the [realtime client hierarchy](../../../docs/realtime-client-hierarchy.html) for the
+port and remains the single owner of readiness, handshake, accepted-traffic classification,
+transport effects, reconnect, and state across attempts. `Keepalive` owns liveness orchestration
+over internal `IdleWatchdog` instances and an injected abortable promise probe. See the [realtime client hierarchy](../../../docs/realtime-client-hierarchy.html) for the
 complete dependency graph and concern matrix.
