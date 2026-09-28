@@ -21,8 +21,8 @@ export function recordSource(source, recorder, options) {
 
   // A payload is the snapshot the source announced; without one, read the
   // source. Genuine commits are fresh references, so the reference check only
-  // skips a redelivery, such as a node handle's birth snapshot right after the
-  // attach-time capture.
+  // skips a redelivery of the snapshot already recorded, such as a source that
+  // announces its current snapshot right after the attach-time capture.
   const unsubscribe = source.subscribe((payload) => {
     if (stopped) return;
     const snapshot = payload === undefined ? source.snapshot : payload;

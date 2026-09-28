@@ -31,7 +31,7 @@ export class FsmHierarchy {
       this.#reconcile(() => {
         this.#root = this.#spawn(null, null, config);
         this.#refreshPaths();
-        this.#reconcileNode(this.#root, new Set());
+        this.#reconcileNode(this.#root);
         if (this.#stopped) return;
         this.#refreshPaths();
         this.#rebuildSnapshot();
@@ -116,31 +116,30 @@ export class FsmHierarchy {
 
   // Reconciliation
 
+  // Only `changed` committed, so only its handle is notified. Like Fsm.subscribe,
+  // handles never replay: a newly spawned node stays silent until it commits.
   #afterCommit(changed) {
-    const affected = new Set([changed]);
     let snapshot = null;
-    let notifications = [];
+    let notification = null;
 
     try {
       this.#reconcile(() => {
         // Load-bearing: the commit may change parent paths before reconciliation
         // spawns children and runs onNodeSpawned.
         this.#refreshPaths();
-        this.#reconcileNode(this.#root, affected);
+        this.#reconcileNode(this.#root);
         if (this.#stopped) return;
         this.#refreshPaths();
         this.#treeVersion += 1;
         snapshot = this.#rebuildSnapshot();
-        notifications = this.#spine()
-          .filter((node) => affected.has(node))
-          .map((node) => ({
-            node,
-            path: node.path,
-            snapshot: node.machine.snapshot,
-          }));
+        notification = {
+          node: changed,
+          path: changed.path,
+          snapshot: changed.machine.snapshot,
+        };
       });
       if (this.#stopped || !snapshot) return;
-      this.#notifyNodes(notifications);
+      this.#notifyNode(notification);
       this.#notifyHierarchy(snapshot);
     } catch (error) {
       this.#teardown();
@@ -160,7 +159,7 @@ export class FsmHierarchy {
 
   // Make the subtree under `node` match the committed states: keep a matching
   // child, otherwise dispose it and spawn the declared child for the new state.
-  #reconcileNode(node, affected) {
+  #reconcileNode(node) {
     if (this.#stopped || node.disposed) return;
 
     const state = node.machine.state;
@@ -173,7 +172,7 @@ export class FsmHierarchy {
       current.ownerState === state &&
       current.config === childConfig
     ) {
-      this.#reconcileNode(current, affected);
+      this.#reconcileNode(current);
       return;
     }
 
@@ -190,8 +189,7 @@ export class FsmHierarchy {
       return;
     }
     node.child = child;
-    affected.add(child);
-    this.#reconcileNode(child, affected);
+    this.#reconcileNode(child);
   }
 
   #refreshPaths() {
@@ -234,7 +232,6 @@ export class FsmHierarchy {
       cleanup: null,
       path,
       lastSnapshot: machine.snapshot,
-      publishedVersion: -1,
       disposed: false,
     };
     node.handle = this.#createHandle(node);
@@ -339,25 +336,20 @@ export class FsmHierarchy {
     return this.#snapshot;
   }
 
-  // Same rule as core Fsm, per source: a subscriber that sends again triggers a
-  // nested, synchronous publish of newer snapshots, and the outer pass then skips
-  // anything older, so no source ever delivers an older snapshot after a newer one.
-  // A node affected only by the outer commit is still delivered.
-  #notifyNodes(notifications) {
-    for (const { node, path, snapshot } of notifications) {
-      if (snapshot.version < node.publishedVersion) continue;
-      node.publishedVersion = snapshot.version;
-      for (const subscriber of [...node.subscribers]) {
-        if (node.disposed || node.publishedVersion !== snapshot.version) break;
-        try {
-          subscriber(snapshot);
-        } catch (error) {
-          this.#logger.error(MESSAGES.nodeSubscriberFailed, {
-            path,
-            version: snapshot.version,
-            error,
-          });
-        }
+  // Same rule as core Fsm: a subscriber that sends again triggers a nested,
+  // synchronous publish of the newer snapshot, and this outer pass then stops,
+  // so a handle never delivers an older snapshot after a newer one.
+  #notifyNode({ node, path, snapshot }) {
+    for (const subscriber of [...node.subscribers]) {
+      if (node.disposed || node.machine.snapshot !== snapshot) return;
+      try {
+        subscriber(snapshot);
+      } catch (error) {
+        this.#logger.error(MESSAGES.nodeSubscriberFailed, {
+          path,
+          version: snapshot.version,
+          error,
+        });
       }
     }
   }

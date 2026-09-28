@@ -1,6 +1,6 @@
 # About Bazario Labs
 
-Bazario Labs is a pnpm workspace for TypeScript SDKs and developer tooling aimed at the UCaaS domain. The repository is positioned around realtime communications use cases such as SIP signaling, chat, telephony, and call-flow orchestration.
+Bazario Labs is a pnpm workspace for JavaScript SDKs with TypeScript declarations, and developer tooling, aimed at the UCaaS domain. The repository is positioned around realtime communications use cases such as SIP signaling, chat, telephony, and call-flow orchestration.
 
 This workspace currently contains ten packages:
 
@@ -75,9 +75,13 @@ Common root commands:
 
 Release flow:
 
-1. Create a changeset.
+1. Create a changeset (README-only changes need a patch changeset too).
 2. Run `pnpm version-packages` to update versions and changelogs.
-3. Run `pnpm release` to build and publish.
+3. Run `pnpm health`, then commit the version bump.
+4. Run `pnpm release` to build and publish.
+5. Run `git push --follow-tags` to push the release commit and its tags.
+
+The root `README.md` has the full steps, including the npm sign-in check.
 
 ## Package Notes
 

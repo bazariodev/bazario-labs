@@ -600,7 +600,25 @@ describe('recordSource', () => {
     ).toEqual(['idle', 'dialing', 'connected']);
   });
 
-  it('dedupes payload-delivered birth snapshots from hierarchy node handles', () => {
+  it('dedupes a payload redelivery of the snapshot it already recorded', () => {
+    const recorder = new InspectRecorder({ now: () => 1 });
+    const snapshot = Object.freeze({ value: 'idle' });
+    const source = {
+      snapshot,
+      listener: null,
+      subscribe(listener) {
+        this.listener = listener;
+        return () => undefined;
+      },
+    };
+    recordSource(source, recorder, { name: 'source' });
+
+    source.listener(snapshot);
+
+    expect(recorder.entries.map((entry) => entry.label)).toEqual(['idle']);
+  });
+
+  it('records a node handle attached in onNodeSpawned once, at attach time', () => {
     const recorder = new InspectRecorder({ now: () => 1 });
     const labels = [];
     const hierarchy = new FsmHierarchy(createRootConfig(), {

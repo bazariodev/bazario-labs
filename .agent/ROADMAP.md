@@ -2,6 +2,7 @@
 
 - Status: Draft for review
 - Date: 2026-07-04
+- Revised: 2026-09-28
 
 ## Vision
 
@@ -11,18 +12,24 @@ The roadmap ends at a concrete stop line: **a reference UCaaS web app with basic
 
 ## Where we are today
 
-Shipped (all `0.1.0`, tested, per ADR):
+Shipped (current versions and release notes live in each package's `package.json` and `CHANGELOG.md`):
 
 - `@bazariodev/fsm` — flat, synchronous, typed FSM core (`ADR/Base/CoreFSM.md`, Accepted)
 - `@bazariodev/fsm-effects` — state-entry effects with `AbortSignal` cancellation (`ADR/Modules/Effects.md`)
 - `@bazariodev/fsm-delays` — declarative `after`/`every` timers on top of effects (`ADR/Modules/Delays.md`)
 - `@bazariodev/fsm-hierarchy` — tree of flat machines, deepest-first routing, composed snapshot (`ADR/Modules/Hierarchy.md`, Accepted)
+- `@bazariodev/fsm-react` — React snapshot, selector, and component-lifecycle hooks (`ADR/Modules/React.md`)
+- `@bazariodev/fsm-persist` — snapshot storage and restoration by construction (`ADR/Modules/Persist.md`)
+- `@bazariodev/fsm-inspect` — transition timelines, source recording, and Mermaid diagrams (`ADR/Modules/Inspect.md`)
+- `@bazariodev/transport` — one-attempt WebSocket, HTTP, and WebTransport adapters (`ADR/Modules/Transport.md`)
+- `@bazariodev/idle-watchdog` — one-shot inactivity timer with explicit arming (`ADR/Modules/IdleWatchdog.md`)
+- `@bazariodev/keepalive` — idle scheduling, abortable promise probes, and deadlines (`ADR/Modules/Keepalive.md`)
 
 Review notes:
 
 - The layering thesis is proven: core → effects → delays each composed over the previous package's public seams without core changes. Domain modules below follow the same rule (ports and adapters, composition over subclassing).
-- Deferred items already named by ADRs and picked up by this roadmap: retry/backoff policy DSL (Delays ADR), spawn-child primitive → hierarchy (Effects ADR), persistence module (Effects and Hierarchy ADRs), parallel regions and history (Hierarchy ADR).
-- Nothing yet covers the UCaaS domain itself (signaling, media, chat, presence) or framework bindings — that is what this roadmap adds.
+- Remaining deferred items named by ADRs: retry/backoff policy DSL (Delays ADR), parallel regions and history (Hierarchy ADR). Hierarchy composition and persistence are shipped.
+- React bindings and the connectivity primitives are shipped. RealtimeClient remains at ADR stage; signaling, media, chat, and presence are still planned.
 
 ## Module map
 
@@ -38,7 +45,7 @@ Status legend: `shipped` / `implemented, release pending` / `adr` (written, not 
 | `fsm-hierarchy` | nested machines, event bubbling, composed snapshot | shipped | R1 |
 | `fsm-react` | React bindings (`useFsm`, selector subscriptions via `useSyncExternalStore`) | shipped | R1 |
 | `fsm-persist` | snapshot serialize + rehydrate-by-construction (page refresh survival) | shipped | R1 stretch |
-| `fsm-inspect` | dev-time transition trace, timeline log, Mermaid diagram export | adr | R1 stretch |
+| `fsm-inspect` | dev-time transition trace, timeline log, Mermaid diagram export | shipped | R1 stretch |
 | `fsm-retry` | declarative retry/backoff policy (max attempts, jitter, give-up event) | planned | R2 |
 
 ### Layer 1 — Connectivity and session
@@ -47,9 +54,9 @@ Responsibility and dependency guide: [`docs/realtime-client-hierarchy.html`](../
 
 | Package | Purpose | Status | Release |
 | --- | --- | --- | --- |
-| `transport` | shared one-attempt contract with WebSocket, streaming HTTP (GET + POST), and reliable-stream WebTransport adapters | implemented, release pending | R2 |
-| `idle-watchdog` | re-armable one-shot inactivity timer; consumers own arming and idle-event policy | implemented, release pending | R2 |
-| `keepalive` | liveness orchestration over idle watchdogs; owns inactivity, abortable promise probes, and deadlines; consumers own request handling and recovery | implemented, release pending | R2 |
+| `transport` | shared one-attempt contract with WebSocket, streaming HTTP (GET + POST), and reliable-stream WebTransport adapters | shipped | R2 |
+| `idle-watchdog` | re-armable one-shot inactivity timer; consumers own arming and idle-event policy | shipped | R2 |
+| `keepalive` | liveness orchestration over idle watchdogs; owns inactivity, abortable promise probes, and deadlines; consumers own request handling and recovery | shipped | R2 |
 | `realtime` | logical `RealtimeClient` over `transport`: JSON handshake, readiness, internal ping/pong handling, default keepalive, and reconnect backoff across attempts | adr | R2 |
 | `rpc` | request/response correlation, timeouts, and typed methods over `RealtimeClient` messages | planned | R2 |
 | `auth-session` | token lifecycle machine (login, refresh, expiry, logout) with storage port | planned | R2 |

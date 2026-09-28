@@ -2,7 +2,7 @@
   "name": "bazario-labs",
   "version": "0.0.0",
   "private": true,
-  "description": "Bazario Labs — TypeScript SDKs and tools for UCaaS (realtime, SIP, chat, telephony).",
+  "description": "Bazario Labs — JavaScript building blocks for realtime connections, chat, and telephony, with TypeScript declarations.",
   "license": "MIT",
   "author": "Bazario",
   "repository": {

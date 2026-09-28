@@ -153,7 +153,7 @@ describe('FsmHierarchy', () => {
     expect(hierarchy.snapshot.path).toBe('failed');
   });
 
-  it('notifies affected node handles root-to-leaf before hierarchy subscribers', () => {
+  it('notifies the committing node handle before hierarchy subscribers', () => {
     const calls = [];
     const hierarchy = new FsmHierarchy(createRootConfig(), {
       onNodeSpawned: (node) => {
@@ -260,7 +260,42 @@ describe('FsmHierarchy', () => {
     expect(sendWhileSpawningError).toEqual(
       new Error(MESSAGES.sendWhileReconciling),
     );
-    expect(calls).toEqual(['active:0', 'muted:1']);
+    // Subscribing never replays; the first notification is the node's first commit.
+    expect(calls).toEqual(['muted:1']);
+  });
+
+  it('never replays the current snapshot to node-handle subscribers', () => {
+    const constructed = [];
+    new FsmHierarchy(createRootConfig(undefined, { initial: 'connected' }), {
+      onNodeSpawned: (node) => {
+        node.handle.subscribe((snapshot) => {
+          constructed.push(`${node.path}:${snapshot.version}`);
+        });
+      },
+    });
+    // Nodes spawned at construction, child included, stay silent.
+    expect(constructed).toEqual([]);
+
+    const calls = [];
+    const hierarchy = new FsmHierarchy(createRootConfig(), {
+      onNodeSpawned: (node) => {
+        calls.push(`spawned:${node.path}:${node.handle.snapshot.version}`);
+        node.handle.subscribe((snapshot) => {
+          calls.push(`node:${node.path}:${snapshot.value}:${snapshot.version}`);
+        });
+      },
+    });
+
+    // The root commits; the child it spawns stays silent until its own commit.
+    hierarchy.send({ type: 'CONNECT' });
+    expect(calls).toEqual([
+      'spawned:idle:0',
+      'spawned:connected.active:0',
+      'node:idle:connected:1',
+    ]);
+
+    hierarchy.send({ type: 'MUTE' });
+    expect(calls.at(-1)).toBe('node:connected.active:muted:1');
   });
 
   it('rejects hierarchy sends during reconciliation so a new child cannot clobber the active spine', () => {

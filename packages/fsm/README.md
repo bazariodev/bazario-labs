@@ -2,7 +2,7 @@
 
 A small, dependency-free finite state machine, implemented in plain JavaScript with strict TypeScript declarations for its public interface. Designed for realtime communications workflows such as SIP signaling, call lifecycle, chat orchestration, and reconnect flows.
 
-The base core is intentionally narrow: deterministic transitions, synchronous context reducers, configuration-driven lifecycle hooks, post-commit subscriptions, and configurable logging. Everything else (effects, timers, history, persistence, hierarchical states) is out of scope for v1 and intended to be composed around the core.
+The base core is intentionally narrow: deterministic transitions, synchronous context reducers, configuration-driven lifecycle hooks, post-commit subscriptions, and configurable logging. Effects, timers, persistence, hierarchical states, and framework bindings are provided by separate packages composed around the core.
 
 ## Install
 
@@ -10,63 +10,37 @@ The base core is intentionally narrow: deterministic transitions, synchronous co
 pnpm add @bazariodev/fsm
 ```
 
-## Quick start
+## Usage
 
 ```ts
 import { Fsm } from '@bazariodev/fsm';
 
-type CallState = 'idle' | 'dialing' | 'connected' | 'failed';
+type CallState = 'idle' | 'dialing' | 'connected';
+type CallEvent = { type: 'DIAL' } | { type: 'CONNECT' } | { type: 'HANGUP' };
+type CallContext = { attempts: number };
 
-type CallEvent =
-  | { type: 'DIAL'; destination: string }
-  | { type: 'CONNECT' }
-  | { type: 'FAIL' };
-
-type CallContext = {
-  attempts: number;
-  destination: string | null;
-};
-
-const machine = new Fsm<CallState, CallEvent, CallContext>({
-  name: 'call-flow',
+const call = new Fsm<CallState, CallEvent, CallContext>({
+  name: 'call',
   initial: 'idle',
-  context: { attempts: 0, destination: null },
-  states: {
-    idle: {},
-    dialing: {
-      onEnter: ({ context }) => console.log(`dialing ${context.destination}`),
-    },
-    connected: {},
-    failed: {},
-  },
+  context: { attempts: 0 },
+  states: { idle: {}, dialing: {}, connected: {} },
   transitions: {
     idle: {
-      DIAL: {
-        target: 'dialing',
-        reducer: (context, event) => ({
-          attempts: context.attempts + 1,
-          destination: event.type === 'DIAL' ? event.destination : context.destination,
-        }),
-      },
+      DIAL: { target: 'dialing', reducer: (context) => ({ attempts: context.attempts + 1 }) },
     },
-    dialing: {
-      CONNECT: { target: 'connected' },
-    },
-    connected: {},
-    failed: {},
-    '*': {
-      FAIL: { target: 'failed' },
-    },
+    dialing: { CONNECT: { target: 'connected' } },
+    connected: { HANGUP: { target: 'idle' } },
   },
 });
 
-machine.subscribe((snapshot) => {
-  console.log(snapshot.value, snapshot.version);
-});
+call.subscribe((snapshot) => console.log(snapshot.value, snapshot.context.attempts));
 
-machine.send({ type: 'DIAL', destination: '1001' });
-machine.send({ type: 'CONNECT' });
+call.send({ type: 'DIAL' }); // logs "dialing 1"
+call.send({ type: 'CONNECT' }); // logs "connected 1"
 ```
+
+An event the current state doesn't handle is rejected: nothing changes, and subscribers aren't
+notified. Guards, wildcard transitions, and lifecycle hooks are shown below.
 
 ## Core concepts
 
@@ -107,9 +81,48 @@ type TransitionDefinition<TState, TEvent, TContext> = {
 - `guard` must be synchronous, pure, and side-effect free. If a guard throws, the transition is rejected and the error is rethrown from `send()`.
 - `reducer` returns the next context. If omitted, context is unchanged.
 
+For example, a call that stops dialing after three attempts and records where it's dialing:
+
+```ts
+import { Fsm } from '@bazariodev/fsm';
+
+type CallState = 'idle' | 'dialing' | 'blocked';
+type CallEvent = { type: 'DIAL'; destination: string } | { type: 'HANGUP' };
+type CallContext = { attempts: number; destination: string | null };
+
+const call = new Fsm<CallState, CallEvent, CallContext>({
+  name: 'call',
+  initial: 'idle',
+  context: { attempts: 0, destination: null },
+  states: { idle: {}, dialing: {}, blocked: {} },
+  transitions: {
+    idle: {
+      DIAL: [
+        // Tried in order; the first definition whose guard passes wins.
+        { target: 'blocked', guard: (context) => context.attempts >= 3 },
+        {
+          target: 'dialing',
+          // Guards and reducers receive the whole event union; narrow on `event.type`.
+          reducer: (context, event) => ({
+            attempts: context.attempts + 1,
+            destination: event.type === 'DIAL' ? event.destination : context.destination,
+          }),
+        },
+      ],
+    },
+    dialing: { HANGUP: { target: 'idle' } },
+  },
+});
+```
+
 ### Wildcard transitions
 
 `*` is a reserved source key for global transitions such as `RESET`, `CANCEL`, `FAIL`, or `TERMINATE`. Wildcard transitions are only considered when the current state does not declare an entry for the event type.
+
+```ts
+// in `transitions`: every state without its own `HANGUP` entry goes back to `idle`
+'*': { HANGUP: { target: 'idle' } },
+```
 
 If the current state declares the event and every guard fails, the transition is rejected. The runtime does not fall back to `*` in that case.
 
@@ -124,6 +137,14 @@ If the current state declares the event and every guard fails, the transition is
 5. `onTransitionBeforeCommit` (transition-level)
 6. commit the next snapshot
 7. notify subscribers
+
+```ts
+// in `states`:
+dialing: {
+  onEnter: ({ from, context }) => console.log(`dialing from ${from}, attempt ${context.attempts}`),
+  onLeave: ({ to }) => console.log(`leaving dialing for ${to}`),
+},
+```
 
 All hooks are optional, synchronous, and configuration-driven. During pre-commit hooks, `machine.snapshot`, `machine.state`, and `machine.context` still return the last committed snapshot — hooks should rely on the payload they receive.
 
@@ -143,7 +164,7 @@ const unsubscribe = machine.subscribe((snapshot) => { /* ... */ });
 
 ### Re-entrancy
 
-If `send()` is called while another transition is being processed, the machine throws a plain `Error`. The transition lock is released on every exit path, including rejection and thrown errors.
+Calling `send()` from a guard, reducer, or lifecycle hook throws a plain `Error`, because the machine is in the middle of a transition. Subscribers run after the commit, so they may call `send()` (see Subscriptions). The transition lock is released on every exit path, including rejection and thrown errors.
 
 ### Logger
 
@@ -196,15 +217,16 @@ class Fsm<TState extends string, TEvent extends FsmEvent, TContext>
 
 ### Types
 
-`FsmConfig`, `FsmSnapshot`, `FsmEvent`, `Guard`, `ContextReducer`, `TransitionDefinition`, `TransitionEntry`, `TransitionMap`, `StateDefinition`, `StateEnterPayload`, `StateLeavePayload`, `TransitionStartPayload`, `TransitionCommitPayload`, `Logger`, `FsmSubscriber`, `Unsubscribe`, and `FsmCore` are all exported from the package root.
+All configuration, payload, snapshot, and logger types are exported from the package root, for example `FsmConfig`, `FsmSnapshot`, `TransitionDefinition`, and `Logger`.
 
-`FsmCore` is the public contract the `Fsm` class implements. Consumers can depend on it directly for dependency injection or test doubles.
+- `FsmCore` is the contract `Fsm` implements. Depend on it for dependency injection or test doubles.
+- `FsmSubscribable` is the shape the other packages accept: a stable `snapshot` accessor and `subscribe(listener)`. `Fsm`, `FsmHierarchy`, and hierarchy node handles all fit it.
 
 ## Configuration validation
 
 The constructor fails fast on:
 
-- empty `name`
+- empty or whitespace-only `name`
 - `initial` state that is not declared in `states`
 - `*` used as a state name
 - transition source states other than `*` that are not declared in `states`
@@ -216,17 +238,18 @@ Validation covers the state graph only. Value shapes (for example a non-function
 
 States without outgoing transitions can be omitted from `transitions`, and `*` is optional.
 
-## Out of scope for v1
+## Companion modules
 
-The following are intentionally deferred and will be added as separate modules once the base core is stable:
+These capabilities are available as separate packages:
 
-- async effects
-- delays and timers
-- history
-- persistence
-- hierarchical and parallel states
-- transport-specific integrations
-- plugin systems beyond configuration hooks and subscriptions
+- [`@bazariodev/fsm-effects`](https://www.npmjs.com/package/@bazariodev/fsm-effects): state-entry work, cancellation, and cleanup.
+- [`@bazariodev/fsm-delays`](https://www.npmjs.com/package/@bazariodev/fsm-delays): state-scoped timeouts and intervals.
+- [`@bazariodev/fsm-hierarchy`](https://www.npmjs.com/package/@bazariodev/fsm-hierarchy): nested machines and event bubbling.
+- [`@bazariodev/fsm-react`](https://www.npmjs.com/package/@bazariodev/fsm-react): snapshot, selector, and component-lifecycle hooks.
+- [`@bazariodev/fsm-persist`](https://www.npmjs.com/package/@bazariodev/fsm-persist): snapshot storage and restoration by construction.
+- [`@bazariodev/fsm-inspect`](https://www.npmjs.com/package/@bazariodev/fsm-inspect): timelines, logging, and Mermaid diagrams.
+
+History, parallel regions, and transport-specific orchestration remain outside the core API.
 
 ## License
 

@@ -3,7 +3,7 @@
 import type { FsmCore, FsmEvent, FsmSnapshot, Logger } from '@bazariodev/fsm';
 import type { EffectsConfig } from '@bazariodev/fsm-effects';
 
-/** A value, or a function of the snapshot resolved once at state entry. */
+/** A value, or a function of the entry snapshot. Durations resolve on entry; `send` resolves each time the delay fires. */
 export type Resolvable<T, TState extends string, TContext> =
   | T
   | ((snapshot: FsmSnapshot<TState, TContext>) => T);

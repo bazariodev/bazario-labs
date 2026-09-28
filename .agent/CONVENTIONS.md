@@ -18,8 +18,27 @@ This file captures implementation guidance for agents and contributors working i
 - Monorepo packages live under `packages/<package-name>`.
 - Runtime source files live under `packages/<package-name>/src`.
 - Tests live under `packages/<package-name>/src/**/__tests__`.
-- Every package should include a `README.md` with package details and usage examples.
+- Every package includes a `README.md`; see Package READMEs below.
 - Keep package-specific docs in the package directory when needed.
+
+## Package READMEs
+
+npm shows each package's README on its own page, and npm readers may not be able to open repository
+files. Every package README must stand on its own.
+
+- Use this order: what the package does (one or two sentences), Install (with peer dependencies),
+  Usage (the smallest real example), Behavior (rules a user can observe, as short bullets), API
+  (options and methods tables), Errors, TypeScript, License. Package-specific topics go after Usage.
+- Keep design rationale in the ADR, contributor commands in the root README, and planned features
+  in the roadmap.
+- Link other packages to their npm pages, not repository paths. Don't make an ADR or a source file
+  the only place a rule is written down.
+- In examples, say which helpers belong to the reader. Omit empty entries from `transitions`, but
+  keep every state declared in `states`.
+- Keep the first example to one task. Show more features, and shutdown calls such as `stop()`, in
+  separate examples after it.
+- A README-only change still needs a patch changeset: npm updates a package's README only when a new
+  version is published.
 
 ## Testing
 

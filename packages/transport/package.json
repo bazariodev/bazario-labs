@@ -1,6 +1,6 @@
 {
   "name": "@bazariodev/transport",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "One-attempt transport contract and platform adapters for realtime connections.",
   "license": "MIT",
   "author": "Bazario",
@@ -29,6 +29,7 @@
   "files": [
     "dist",
     "README.md",
+    "CHANGELOG.md",
     "WEBTRANSPORT_CHECK.md",
     "LICENSE"
   ],

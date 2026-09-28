@@ -1,8 +1,8 @@
 # @bazariodev/fsm-delays
 
-Declarative delays and intervals for [`@bazariodev/fsm`](https://github.com/Bazariodev/bazario-labs/tree/main/packages/fsm). Attach time-driven events to states — one-shot `after` timeouts and repeating `every` intervals — that arm on entry and cancel on leave. Built on [`@bazariodev/fsm-effects`](https://github.com/Bazariodev/bazario-labs/tree/main/packages/fsm-effects).
-
-Full design rationale: [`Delays.md` ADR](https://github.com/Bazariodev/bazario-labs/blob/main/.agent/ADR/Modules/Delays.md).
+Timeouts and intervals for [`@bazariodev/fsm`](https://www.npmjs.com/package/@bazariodev/fsm)
+states. A delay arms when its state is entered, sends an event when it fires, and is cancelled when
+the state is left. Built on [`@bazariodev/fsm-effects`](https://www.npmjs.com/package/@bazariodev/fsm-effects).
 
 ## Install
 
@@ -10,13 +10,15 @@ Full design rationale: [`Delays.md` ADR](https://github.com/Bazariodev/bazario-l
 pnpm add @bazariodev/fsm-delays @bazariodev/fsm @bazariodev/fsm-effects
 ```
 
-`@bazariodev/fsm` and `@bazariodev/fsm-effects` are peer dependencies.
+`@bazariodev/fsm` and `@bazariodev/fsm-effects` are peer dependencies. FSM Delays 2.x needs FSM
+Effects 2.x and FSM ^1.1.0; upgrade Delays and Effects together.
 
 ## Usage
 
 ```ts
 import { FsmDelays } from '@bazariodev/fsm-delays';
 
+// `callMachine` is your Fsm.
 const delays = new FsmDelays(callMachine, {
   delays: {
     // ring-no-answer timeout
@@ -32,47 +34,91 @@ const delays = new FsmDelays(callMachine, {
     },
   },
 });
-
-delays.stop(); // or `using delays = new FsmDelays(...)`
 ```
 
-A spec carries exactly one of `after` (one-shot) or `every` (repeating). `after`/`every` (ms) and `send` may be static values or functions of the entry `snapshot`. Multiple specs per state and wildcard (`*`) specs are supported.
+When you're done, call `delays.stop()`, or create the runner with `using` so it stops at the end of
+the scope.
 
-### Composing with hand-written effects
+Each delay has exactly one of `after` or `every`, plus the event to `send`. A state can take an
+array of delays, and delays under `*` apply to every state.
 
-`compileDelays` returns an effects fragment you can merge into your own `FsmEffects`, so one subscriber drives both delays and effects:
+| Field | Meaning |
+| --- | --- |
+| `after` | Milliseconds (`>= 0`) until the event is sent once. A number, or a function of the entry snapshot. |
+| `every` | Milliseconds (`> 0`) between repeated sends. A number, or a function of the entry snapshot. |
+| `send` | The event, or a function of the entry snapshot that returns it. |
+| `id` | Optional label added to this delay's log metadata. |
+
+## Behavior
+
+- A delay never sends its event after its state is left: leaving cancels the timer before the next
+  state's effects run.
+- Self-transitions don't restart timers. A heartbeat `every` keeps ticking across the
+  self-transitions its own events cause, and an `after` keeps its original deadline.
+- `after` and `every` functions run once, on state entry. A `send` function runs each time the
+  delay fires. All of them receive the snapshot from state entry, so a self-transition doesn't
+  refresh their `context`.
+- Compute retry delays from context, for example with an attempt counter, as in the `reconnecting`
+  example above.
+
+## Using delays with your own effects
+
+`compileDelays` turns delays into an effects map for your own `FsmEffects`, so one runner handles
+both:
 
 ```ts
 import { FsmEffects } from '@bazariodev/fsm-effects';
-import { compileDelays } from '@bazariodev/fsm-delays';
+import { compileDelays, type DelaysConfig } from '@bazariodev/fsm-delays';
+
+// `CallState`, `CallEvent`, and `CallContext` are your machine's types.
+const callDelays: DelaysConfig<CallState, CallEvent, CallContext> = {
+  delays: { ringing: { after: 30_000, send: { type: 'NO_ANSWER' } } },
+};
 
 new FsmEffects(machine, {
   effects: {
-    ...compileDelays({ delays: { ringing: { after: 30_000, send: { type: 'NO_ANSWER' } } } }),
+    ...compileDelays(callDelays),
     dialing: (snapshot, { signal, send }) => {
-      // hand-written effect alongside the compiled delays
+      // your own effect
     },
   },
 });
 ```
 
-Merge per state: a delay map and an effect map that share a state key would overwrite on spread — keep their keys distinct unless you intend to override.
+In TypeScript, type the delays with your machine's types as above. Otherwise the state type is
+inferred from the delay keys alone, and the result no longer fits your machine.
 
-## Design decisions
+Keep the state names in the two maps distinct: when both maps have the same state, the spread keeps
+only the later entry. If one state needs both a delay and an effect, run `FsmDelays` and
+`FsmEffects` side by side on the same machine.
 
-- **Built on the effects runner.** A delay compiles to an effect that arms a timer on entry and returns `() => clearTimeout(handle)`. Cancellation, re-entrancy safety, and the guarded `send` all come from `@bazariodev/fsm-effects`. Because cleanup runs synchronously when the leaving state's controller aborts, **a pending timer can never fire for a state the machine has already left**.
-- **`after` and `every`.** One-shot timeouts and repeating intervals, modelled as a union so a spec carries exactly one. `every` covers heartbeat and registration-refresh as first-class.
-- **Dynamic resolvers.** `after`/`every`/`send` resolve against the entry snapshot — once when an `after` fires, on each tick for an `every`. Exponential backoff falls out of a dynamic `after` plus an attempt counter in `context`; no separate retry DSL.
-- **Injectable scheduler.** An optional `scheduler` (`{ setTimeout, clearTimeout, setInterval, clearInterval }`) defaults to the global timers. Tests inject a deterministic clock instead of relying on fake timers.
-- **Self-transitions don't restart timers** (inherited from the effects runner): a heartbeat `every` keeps ticking across the self-transitions its own events cause.
-- **Validation.** Construction fails fast on a `delays` map that is not a plain object, a spec that is not a plain object (including `null`), a spec without exactly one of `after`/`every`, a missing `send`, or a static `after`/`every` that is not a finite number in range (`after >= 0`, `every > 0`; a string such as `"100"` is rejected). A dynamic resolver that yields an invalid duration is logged at `warn` and skipped for that entry; the rest still arm. These checks stay in JavaScript because a delay only fails inside a timer, where errors are logged rather than thrown; without them a typo such as `{ afer: 100 }` would silently never fire.
-- **Error containment.** The timer callback fires after the effect body returns, outside the runner's try/catch, so the module wraps it: a throw from resolving `send`, or a machine error from the delayed `api.send` (guard/reducer/hook failure), is caught and logged via `logger` as `fsm-delays: delayed send threw` rather than escaping as an uncaught timer exception. No error event is auto-sent.
+## Errors
+
+- The constructor throws on an invalid config: `delays` isn't a plain object; a delay isn't a plain
+  object (including `null`); a delay doesn't have exactly one of `after` and `every`; `send` is
+  missing; or a fixed `after`/`every` isn't a finite number in range. A string such as `"100"` is
+  rejected too. Delays fail inside timers, where errors are only logged, so without these checks a
+  typo like `{ afer: 100 }` would never fire.
+- If an `after`/`every` function returns an invalid duration, that delay is skipped and a warning is
+  logged. If it throws, FSM Effects logs the error. Either way, the state's other delays still arm.
+- If sending the delayed event throws (a throwing `send` function, or a guard, reducer, or hook
+  error in the machine), the error is logged as `fsm-delays: delayed send threw`. No other event is
+  sent.
 
 ## API
 
-- `FsmDelays` — convenience runner that owns an internal `FsmEffects`; `stop()` and `[Symbol.dispose]`.
-- `compileDelays(config)` — pure compiler returning an `EffectsConfig['effects']` fragment.
+- `new FsmDelays(machine, { delays, scheduler?, logger? })`: runs the delays with an internal
+  `FsmEffects`. `stop()` cancels pending timers and unsubscribes; `[Symbol.dispose]()` does the same.
+- `compileDelays({ delays, scheduler?, logger? })`: returns an effects map for your own `FsmEffects`.
+- `scheduler` replaces the global timers with your own `{ setTimeout, clearTimeout, setInterval,
+  clearInterval }`. Inject a manual clock in tests instead of using fake timers.
 - Types: `AfterSpec`, `EverySpec`, `DelaySpec`, `DelaysConfig`, `Scheduler`, `Resolvable`.
+
+## TypeScript
+
+Add `"DOM"` (browsers) or `"WebWorker"` (workers) to `compilerOptions.lib`, or use Node typings that
+provide `AbortSignal` (FSM Effects needs it). Since 2.0 no DOM types are added for you; timer
+behavior is unchanged.
 
 ## License
 

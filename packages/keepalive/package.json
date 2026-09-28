@@ -1,6 +1,6 @@
 {
   "name": "@bazariodev/keepalive",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Connection liveness monitoring with idle watchdogs, abortable promise probes, and terminal failure notifications.",
   "license": "MIT",
   "author": "Bazario",
@@ -29,6 +29,7 @@
   "files": [
     "dist",
     "README.md",
+    "CHANGELOG.md",
     "LICENSE"
   ],
   "sideEffects": false,

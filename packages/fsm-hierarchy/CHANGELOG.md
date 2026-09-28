@@ -1,5 +1,25 @@
 # @bazariodev/fsm-hierarchy
 
+## 2.0.0
+
+### Major Changes
+
+- Node handles no longer deliver a newly created machine's first snapshot. In 1.x, when a transition
+  created a child machine, handle subscribers added in `onNodeSpawned` received its `version` 0
+  snapshot; machines created at construction never did. Now, as with `Fsm.subscribe`, subscribing
+  never delivers the current snapshot, and a handle notifies only when its own machine commits a
+  transition. If you relied on that call, read `handle.snapshot` when you subscribe. FSM Effects, FSM
+  Delays, FSM Persist, FSM Inspect, and FSM React already read the snapshot and need no changes.
+
+### Patch Changes
+
+- Rewrite the package README so it stands on its own: install steps with peer dependencies, a minimal
+  example first, behavior as short rules, and option tables. Document behavior that was missing, such
+  as effect ordering, hierarchy child re-creation and node paths, persistence options and restore
+  order, and inspection entry types. Link related packages to their npm pages. Include `CHANGELOG.md`
+  in the published package. In FSM Delays, correct the `Resolvable` doc comment. These documentation
+  and packaging changes don't change runtime behavior or types.
+
 ## 1.1.0
 
 ### Minor Changes

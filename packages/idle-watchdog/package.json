@@ -1,6 +1,6 @@
 {
   "name": "@bazariodev/idle-watchdog",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Dependency-free, re-armable one-shot inactivity timer with explicit activity reporting.",
   "license": "MIT",
   "author": "Bazario",
@@ -29,6 +29,7 @@
   "files": [
     "dist",
     "README.md",
+    "CHANGELOG.md",
     "LICENSE"
   ],
   "sideEffects": false,

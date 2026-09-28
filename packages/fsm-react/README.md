@@ -1,8 +1,8 @@
 # @bazariodev/fsm-react
 
-React bindings for [`@bazariodev/fsm`](https://github.com/Bazariodev/bazario-labs/tree/main/packages/fsm) and any workspace source that exposes the same observation shape: a stable `snapshot` accessor plus `subscribe(listener)`.
-
-Full design rationale: [`React.md` ADR](https://github.com/Bazariodev/bazario-labs/blob/main/.agent/ADR/Modules/React.md).
+React hooks for [`@bazariodev/fsm`](https://www.npmjs.com/package/@bazariodev/fsm) machines. They
+work with `Fsm`, `FsmHierarchy`, hierarchy node handles, or any object with a stable `snapshot` and a
+`subscribe(listener)` method.
 
 ## Install
 
@@ -10,7 +10,8 @@ Full design rationale: [`React.md` ADR](https://github.com/Bazariodev/bazario-la
 pnpm add @bazariodev/fsm-react @bazariodev/fsm react
 ```
 
-`react` and `@bazariodev/fsm` are peer dependencies. `@bazariodev/fsm` is used for shared types only; the runtime import is React.
+Supports React 18 and 19. `react` and `@bazariodev/fsm` are peer dependencies; `@bazariodev/fsm`
+provides the shared types.
 
 ## Usage
 
@@ -18,24 +19,23 @@ pnpm add @bazariodev/fsm-react @bazariodev/fsm react
 import { Fsm } from '@bazariodev/fsm';
 import { useFsmSelector, useFsmSnapshot } from '@bazariodev/fsm-react';
 
-const call = new Fsm({
+type CallState = 'idle' | 'dialing' | 'connected';
+type CallEvent = { type: 'DIAL' } | { type: 'CONNECT' };
+
+const call = new Fsm<CallState, CallEvent, { attempts: number }>({
   name: 'call',
   initial: 'idle',
   context: { attempts: 0 },
-  states: {
-    idle: {},
-    dialing: {},
-    connected: {},
-  },
+  states: { idle: {}, dialing: {}, connected: {} },
   transitions: {
-    idle: { DIAL: { target: 'dialing' } },
+    idle: {
+      DIAL: { target: 'dialing', reducer: (context) => ({ attempts: context.attempts + 1 }) },
+    },
     dialing: { CONNECT: { target: 'connected' } },
-    connected: {},
-    '*': {},
   },
 });
 
-function CallState() {
+function CallButton() {
   const snapshot = useFsmSnapshot(call);
   const attempts = useFsmSelector(call, (s) => s.context.attempts);
 
@@ -47,14 +47,13 @@ function CallState() {
 }
 ```
 
-## API
+Components re-render only after a committed transition; rejected events don't cause renders. Send
+events from event handlers or effects, never during render.
+
+## Hooks
 
 ```ts
-import type { FsmSubscribable } from '@bazariodev/fsm';
-
-function useFsmSnapshot<TSnapshot>(
-  source: FsmSubscribable<TSnapshot>,
-): TSnapshot;
+function useFsmSnapshot<TSnapshot>(source: FsmSubscribable<TSnapshot>): TSnapshot;
 
 function useFsmSelector<TSnapshot, TSelected>(
   source: FsmSubscribable<TSnapshot>,
@@ -71,20 +70,25 @@ function useFsm<TMachine extends FsmSubscribable<unknown>>(
 ): Readonly<{ machine: TMachine; snapshot: SnapshotOf<TMachine> }>;
 ```
 
-`FsmSubscribable` is the shared core shape: a stable `snapshot` accessor plus `subscribe(listener)` where the listener may receive the committed snapshot.
+- The hooks use React's `useSyncExternalStore`, so they're safe for concurrent rendering.
+- A source must return the same `snapshot` object until its next commit. All Bazario machines do;
+  a custom source that builds a new object on every read breaks the hooks.
+- `selector` must be pure. Inline selectors are fine: changing `selector` or `isEqual` recomputes
+  the value without resubscribing.
+- A component re-renders only when `isEqual` (default `Object.is`) reports a change in the selected
+  value. A selector that builds a new object or array on every call needs an `isEqual`, such as a
+  shallow compare, or the component re-renders on every commit.
+- Types: `FsmSubscribable`, `EqualityFn`, `UseFsmOptions`, `SnapshotOf`.
 
-`useFsmSnapshot` and `useFsmSelector` are built on React's `useSyncExternalStore`, so they are safe for concurrent rendering. Sources must return the same `snapshot` reference between commits. A source that allocates a fresh object on every `snapshot` read violates the port contract.
+## Machines owned by a component
 
-`useFsmSelector` does not resubscribe when inline `selector` or `isEqual` functions change. It recomputes against the current snapshot when either identity changes, so prop-driven selector or comparator changes do not return stale data.
-
-## Component-owned machines
-
-`useFsm` is for machines whose lifetime belongs to a component:
+`useFsm` creates a machine for one component and ties its lifetime to that component:
 
 ```tsx
 import { FsmEffects } from '@bazariodev/fsm-effects';
 import { useFsm } from '@bazariodev/fsm-react';
 
+// `createCallMachine` is your own factory that returns an Fsm.
 function LocalCall() {
   const { machine, snapshot } = useFsm(() => createCallMachine(), {
     attach: (machine) => {
@@ -95,7 +99,6 @@ function LocalCall() {
           },
         },
       });
-
       return () => effects.stop();
     },
   });
@@ -108,21 +111,70 @@ function LocalCall() {
 }
 ```
 
-React StrictMode can call state initializers twice in development. Because `useFsm` creates machines in a lazy state initializer, `create` must be discard-safe: constructor-time hooks such as initial `onEnter` or hierarchy `onNodeSpawned` should stay registration-only and resource-free. Acquire sockets, timers, runners, and other external resources in `attach`, and release them through the returned cleanup or `teardown`.
+- `create` runs once, on the first render. Passing new `create`, `attach`, or `teardown` functions
+  on later renders doesn't recreate or reattach the machine.
+- `attach` runs after mount. Its returned cleanup runs on unmount.
+- `teardown` runs after that cleanup and ends the machine for good. Machines that own resources need
+  it, for example `teardown: (hierarchy) => hierarchy.stop()` for an `FsmHierarchy`.
+- In development, React StrictMode may call `create` twice and discard one machine. Keep hooks that
+  run during construction (the initial `onEnter`, `onNodeSpawned`) free of side effects, and acquire
+  sockets, timers, and runners in `attach`.
+- **With `teardown`, StrictMode resets the machine once in development.** StrictMode runs cleanup
+  and setup again right after mount. After `teardown` the old machine is dead, so `useFsm` creates a
+  fresh one at its initial state. Production doesn't do this. If a machine must never reset, create
+  it outside the component and read it with `useFsmSnapshot` or `useFsmSelector`.
 
-If `teardown` is provided, a machine is considered dead after teardown runs. StrictMode's development effect replay will create a fresh instance instead of reattaching to the dead one, so dev builds may briefly reset component-owned machines to their initial state. Machines that must not reset should live outside the component and be consumed with `useFsmSnapshot` or `useFsmSelector`.
+## Calling `send`
 
-## Method binding
+`Fsm.send` and `FsmHierarchy.send` are class methods, so a detached reference such as
+`onClick={machine.send}` throws. Call `machine.send(event)`, or wrap it:
+`onClick={() => machine.send(event)}`. Hierarchy node handles can be detached safely. The hooks
+never detach your source's methods, so class-based sources work as they are.
 
-`Fsm.send` and `FsmHierarchy.send` are class prototype methods. Call them as `machine.send(event)` or wrap them in a handler. Hierarchy node handles are closure-based and can be detached safely.
+## Slow renders
 
-The hooks wrap `source.subscribe` and `source.snapshot` in closures internally, so class-based sources work without consumers binding methods manually.
+Store updates always render synchronously: wrapping `send` in `startTransition` doesn't make the
+re-render non-blocking. To keep input responsive while a slow part of the tree catches up, defer the
+value you pass to it:
 
-## SSR and RSC
+```tsx
+import { memo, useDeferredValue } from 'react';
 
-The package passes `source.snapshot` as `getServerSnapshot`, so server rendering can produce initial markup. Hydration consistency is the consumer's responsibility: the first client snapshot must match the server-rendered snapshot.
+type Message = { id: string; text: string };
 
-Distributed files include a `'use client'` directive banner.
+// `chat` is your machine, with a `messages` array in its context.
+function Conversation() {
+  const messages = useFsmSelector(chat, (s) => s.context.messages);
+  const deferredMessages = useDeferredValue(messages);
+  return <MessageList messages={deferredMessages} />;
+}
+
+// Deferring only helps if the slow component skips renders for unchanged props.
+const MessageList = memo(function MessageList({ messages }: { messages: readonly Message[] }) {
+  return (
+    <ul>
+      {messages.map((message) => (
+        <li key={message.id}>{message.text}</li>
+      ))}
+    </ul>
+  );
+});
+```
+
+## Server rendering
+
+The server renders the machine's current snapshot (`getServerSnapshot` reads `source.snapshot`).
+
+- Don't share a module-level machine between requests. Create one per request; `useFsm` does this,
+  because each server render creates its own instance.
+- The first client render must show the same state as the server. A machine created from the same
+  config does. If the server advanced its machine before rendering, pass its final state to the
+  client and use it as the client machine's `initial` and `context`.
+
+In apps that use React Server Components, call these hooks from a Client Component: add
+`'use client'` to your component's module when needed. The package's own files also start with
+`'use client'`, but that marks only the package's modules; it doesn't turn the component that
+imports them into a Client Component.
 
 ## License
 
