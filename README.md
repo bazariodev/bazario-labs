@@ -16,6 +16,7 @@ JavaScript building blocks for realtime connections, chat, and telephony, with T
 | [`@bazariodev/transport`](./packages/transport) | Shared transport contract and plain JavaScript WebSocket, streaming HTTP, and WebTransport adapters with bounded writes and disposal. |
 | [`@bazariodev/idle-watchdog`](./packages/idle-watchdog) | Dependency-free, re-armable one-shot inactivity timer with explicit activity reporting, idle subscriptions, and disposal. |
 | [`@bazariodev/keepalive`](./packages/keepalive) | Liveness orchestration over idle watchdogs with abortable promise probes, deadlines, and terminal failure notification. |
+| [`@bazariodev/coordination`](./packages/coordination) | FIFO Queue storage, synchronous and asynchronous task executors, and typed event subscriptions. |
 
 Each package README covers installation and its API. Each package's `CHANGELOG.md` records its
 releases and ships in the npm package. All packages ship ESM and CommonJS with matching `.d.ts` and
@@ -23,7 +24,7 @@ releases and ships in the npm package. All packages ship ESM and CommonJS with m
 
 ## TypeScript setup
 
-FSM Effects, FSM Delays, Transport, and Keepalive use platform APIs such as `AbortSignal` but don't
+FSM Effects, FSM Delays, Transport, Keepalive, and Coordination use platform APIs such as `AbortSignal` but don't
 add DOM types to your project. Add the library for your runtime to `compilerOptions.lib`: `"DOM"`
 for browsers or `"WebWorker"` for workers, for example `["ES2022", "DOM"]`. On Node, use Node
 typings that provide `AbortSignal`; Transport also needs declarations for WebTransport and the other

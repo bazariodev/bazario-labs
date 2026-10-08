@@ -2,7 +2,7 @@
 
 - Status: Draft for review
 - Date: 2026-07-04
-- Revised: 2026-09-28
+- Revised: 2026-09-29
 
 ## Vision
 
@@ -29,7 +29,35 @@ Review notes:
 
 - The layering thesis is proven: core → effects → delays each composed over the previous package's public seams without core changes. Domain modules below follow the same rule (ports and adapters, composition over subclassing).
 - Remaining deferred items named by ADRs: retry/backoff policy DSL (Delays ADR), parallel regions and history (Hierarchy ADR). Hierarchy composition and persistence are shipped.
-- React bindings and the connectivity primitives are shipped. RealtimeClient remains at ADR stage; signaling, media, chat, and presence are still planned.
+- React bindings and the connectivity primitives are shipped. Coordination's implementation and
+  example are complete, with its `1.0.0` package release prepared. RealtimeClient remains at ADR
+  stage; signaling, media, chat, and presence are still planned.
+
+## Next tasks — coordination release and remaining R2 work
+
+[Coordination](ADR/Modules/Coordination.md) is implemented first within the existing R2 connectivity
+milestone. Its initial package release is pending. This changes task priority, not the R1–R5
+milestone identifiers or shipped history.
+
+1. [x] Scaffold `@bazariodev/coordination` at `0.0.0` and implement `Emitter<Events>` first, with
+   RealtimeClient as its first planned package consumer.
+2. [x] Implement public `Queue<T>` as reusable FIFO storage with no execution behavior.
+3. [x] Implement `SyncExecutor` over a private Queue, with reentrant FIFO draining.
+4. [x] Implement `AsyncExecutor` over a private Queue, with serial execution, per-task promises,
+   and a fresh AbortSignal for each started task; stop aborts only the active task.
+5. [x] Validate public behavior and declarations (including interface/type-alias event maps), create
+   the private, versionless `examples/coordination` workspace package with a `workspace:^` dependency and
+   `test: node index.js`, update the lockfile, and prove the example runs directly and through
+   `pnpm health`. Document handled stop in the package README and prepare the first release notes.
+6. [x] Prepare `1.0.0` as the first public release; confirm the
+   ESM/CommonJS package contents with a dry-run pack.
+7. [ ] Publish `@bazariodev/coordination@1.0.0` with `pnpm release`.
+8. [ ] Implement `realtime` using a private Emitter for ready/message/error subscriptions.
+   Continue with `rpc`, `auth-session`, `net-monitor`, and the integration demo; extract `fsm-retry`
+   after the realtime backoff proves its contract.
+
+Queue and the executors are planned standalone SDK primitives with example consumers; no existing
+package migration is assumed. Review compatibility separately before adopting them in shipped code.
 
 ## Module map
 
@@ -91,13 +119,28 @@ Responsibility and dependency guide: [`docs/realtime-client-hierarchy.html`](../
 
 | Item | Purpose | Release |
 | --- | --- | --- |
+| `examples/coordination` | runnable Node assertions for FIFO storage, both executors, and an observable class | R2 first |
 | `examples/server` | tiny Node backend for demos: auth, presence, and chat fan-out over `realtime` + `rpc` | grows R2→R5 |
 | `docker/pbx` | compose file with a SIP server (Asterisk/FreeSWITCH) for real calls in dev | R3 |
 | `examples/softphone` | the reference UCaaS MVP app (React) — the stop line | R5 |
 
+### Shared primitives (opt-in)
+
+These are independent SDK tools. Their placement does not imply a dependency beneath the FSM or
+other shipped packages; each owner adopts only what its contract needs.
+
+| Package | Purpose | Status | Release |
+| --- | --- | --- | --- |
+| `coordination` | FIFO Queue, separate SyncExecutor and AsyncExecutor, and typed Emitter; [ADR](ADR/Modules/Coordination.md) | implemented, release pending | R2 first |
+
 ## Releases
 
 Packages version independently via Changesets, so a "release" here is a milestone, not a lockstep version bump. `1.0.0` means API freeze for that package. The FSM family freezes in R1; domain packages stay `0.x` until the reference app proves them in R5, then get promoted — that promotion is "Bazario Platform 1.0".
+
+Coordination starts at `1.0.0`: its four public primitives carry a stable API commitment from the
+first release. Track real-consumer validation of normal, failure, and disposal paths in the
+[Coordination adoption table](ADR/Modules/Coordination.md#adoption-evidence); that evidence guides
+future changes rather than gating the initial release.
 
 ### R1 — State Platform 1.0
 
@@ -109,9 +152,10 @@ Packages version independently via Changesets, so a "release" here is a mileston
 ### R2 — Connectivity
 
 - Goal: a session that survives the real internet.
-- Build: `transport` (shared contract and WebSocket, HTTP, WebTransport adapters), `idle-watchdog`, `keepalive`, `realtime`, `rpc`, `auth-session`, `net-monitor`; extract `fsm-retry` from the realtime client's backoff implementation (the "real call site" the Delays ADR was waiting for). Start `examples/server`.
+- Next: publish the prepared `1.0.0` coordination package, then implement RealtimeClient using its Emitter.
+- Build: `coordination`, `transport` (shared contract and WebSocket, HTTP, WebTransport adapters), `idle-watchdog`, `keepalive`, `realtime`, `rpc`, `auth-session`, `net-monitor`; extract `fsm-retry` from the realtime client's backoff implementation (the "real call site" the Delays ADR was waiting for). Start `examples/server`.
 - Decision gate: keep `transport` limited to one physical attempt and keep logical lifecycle policy in `realtime`. HTTP and WebTransport share the package and a documented binary framing contract; validate deployment servers against it.
-- Exit criteria: demo signs in, stays connected through network flaps and laptop sleep, re-authenticates silently, shows connection state.
+- Exit criteria: coordination public contracts and declarations pass validation, the private `examples/coordination/` workspace package runs through `pnpm health`, and coordination is documented and released at `1.0.0`; the connectivity demo signs in, stays connected through network flaps and laptop sleep, re-authenticates silently, and shows connection state.
 
 ### R3 — First call
 

@@ -1,0 +1,11 @@
+{
+  "name": "@bazariodev/example-coordination",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node index.js"
+  },
+  "dependencies": {
+    "@bazariodev/coordination": "workspace:^"
+  }
+}

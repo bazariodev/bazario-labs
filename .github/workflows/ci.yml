@@ -30,6 +30,7 @@ jobs:
           path: |
             node_modules
             packages/*/node_modules
+            examples/*/node_modules
           key: node-modules-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
 
   lint:
@@ -51,6 +52,7 @@ jobs:
           path: |
             node_modules
             packages/*/node_modules
+            examples/*/node_modules
           key: node-modules-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
 
       - run: pnpm lint
@@ -74,6 +76,7 @@ jobs:
           path: |
             node_modules
             packages/*/node_modules
+            examples/*/node_modules
           key: node-modules-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
 
       - run: pnpm tsc
@@ -97,6 +100,7 @@ jobs:
           path: |
             node_modules
             packages/*/node_modules
+            examples/*/node_modules
           key: node-modules-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
 
       - run: pnpm test
@@ -120,6 +124,7 @@ jobs:
           path: |
             node_modules
             packages/*/node_modules
+            examples/*/node_modules
           key: node-modules-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
 
       - run: pnpm build

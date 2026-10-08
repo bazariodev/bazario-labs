@@ -2,7 +2,7 @@
 
 - Status: Proposed
 - Date: 2026-09-03
-- Revised: 2026-09-27
+- Revised: 2026-09-29
 
 ## Context
 
@@ -42,12 +42,14 @@ It owns exactly five concerns that must agree on one logical lifecycle:
 4. reconnect with capped exponential backoff and jitter while connection intent remains true;
 5. expose state and validated JSON application messages to consumers.
 
-The package depends on the thin `Transport` contract from `@bazariodev/transport`, uses
+The package uses the thin `Transport` contract from `@bazariodev/transport` only in public types, uses
 `@bazariodev/fsm` for its four-state lifecycle, and uses `@bazariodev/fsm-delays` for the connect
-timeout and reconnect delay. It composes `@bazariodev/keepalive` for attempt-local liveness;
+timeout and reconnect delay, with `@bazariodev/fsm-effects` supplying delays' required runtime peer.
+It composes `@bazariodev/keepalive` for attempt-local liveness;
 keepalive owns two internal `@bazariodev/idle-watchdog` instances. `RealtimeClient` owns the current
-transport, traffic classification, guarded writes, attempt generation, and listener registries. One
-transport attempt intentionally spans both `connecting` and `ready`.
+transport, traffic classification, guarded writes, attempt generation, and event publication. It
+composes a private `Emitter` from `@bazariodev/coordination` for ready/message/error listeners.
+One transport attempt intentionally spans both `connecting` and `ready`.
 
 The transport contract owns no FSM, reconnect, heartbeat, readiness, offline, or cross-attempt queue.
 The application composition root selects `WebSocketAdapter`, `HttpAdapter`, or
@@ -65,6 +67,7 @@ product/domain packages
 @bazariodev/rpc
         ↓ send / onMessage / onReady
 @bazariodev/realtime (logical connection across attempts)
+        ├─ private coordination Emitter (ready/message/error subscriptions)
         ├─ internal protocol handler (ping/pong controls; always present while ready)
         ├─ @bazariodev/keepalive (attempt-local liveness monitor; enabled by default)
         │       └─ @bazariodev/idle-watchdog (idle and response windows)
@@ -78,8 +81,15 @@ The application imports `realtime` and its chosen adapter. Package dependencies 
 
 - `transport` contains the contract and platform adapters, with no runtime dependencies;
 - `idle-watchdog` has no runtime dependencies; `keepalive` depends only on `idle-watchdog`;
-- `realtime` depends on the interface from `transport`, plus `fsm`, `fsm-delays`, and `keepalive`;
-  the application selects the concrete transport adapter;
+- `coordination` supplies independent primitives and has no runtime package dependencies;
+- `realtime` has five direct runtime dependencies: `fsm`, `fsm-effects`, `fsm-delays`, `keepalive`,
+  and `coordination` (only its Emitter export). Declare all five in `dependencies`, using
+  `workspace:^` for workspace development. `fsm-effects` is declared alongside `fsm` to supply
+  the required peers imported by `fsm-delays`;
+- `transport` is a type-only peer dependency of `realtime`, also listed in `devDependencies` for
+  local builds and declaration checks. Its public types must resolve for downstream TypeScript
+  consumers; a devDependency alone does not provide that contract. The application selects and
+  imports the concrete adapter. `idle-watchdog` is transitive through `keepalive`;
 - `rpc` depends only on the public realtime message/readiness seam; the application can inject
   a probe backed by its request handler without adding a realtime-to-RPC package dependency;
 - product/domain packages compose over `rpc` or the smallest realtime seam they require.
@@ -284,7 +294,19 @@ unless `keepalive: false`, a fresh Keepalive. Keepalive owns its watchdogs. Real
 handler's probe by default; other consumers use the same generic promise contract directly.
 
 Listener registration returns its cleanup function; paired `onX`/`offX` methods and a separate
-notifier object add no value. State observation satisfies the existing `FsmSubscribable` shape, so
+public notifier object add no value. Internally, `onReady`, `onMessage`, and `onError` delegate to
+one private Emitter following the [Coordination ADR](Coordination.md). RealtimeClient is its
+first planned package adopter. The client alone can emit; subscribers receive only the owner's
+subscription methods. Registering the same listener for the same event shares one subscription,
+and stale unsubscribe handles cannot remove a later registration.
+
+The emitter belongs to the logical client and survives restartable disconnect/reconnect. Terminal
+stop disposes it before cleanup can publish more events, suppressing remaining callbacks in every
+emission in progress. Subscription changes otherwise affect the next emission. Realtime's attempt
+generation checks still guard entry to event publication; the emitter owns no connection policy.
+No Queue or executor is needed for this integration.
+
+State observation retains the existing `FsmSubscribable` shape and latest-snapshot semantics, so
 `fsm-react` and `fsm-inspect` work without realtime-specific bindings.
 
 ## Lifecycle and invariants
@@ -370,7 +392,8 @@ In v1:
 - immediate ready-state liveness probing without waiting for the idle scheduler;
 - stale-generation protection, sendability guard, deterministic injected transport/time/random;
 - observable snapshots plus ready/message/error subscriptions;
-- zero third-party runtime dependencies beyond the Bazario transport/FSM/watchdog/keepalive packages.
+- direct runtime dependencies on `fsm`, `fsm-effects`, `fsm-delays`, `keepalive`, and `coordination`;
+  `transport` is a type-only peer dependency, and `idle-watchdog` is transitive through `keepalive`.
 
 Not in v1:
 
@@ -442,6 +465,10 @@ Required public-behavior tests:
   public `send()` returns false on rejection and true on admission even if synchronous retirement
   follows; neither path reports liveness activity;
 - listener failure isolation and idempotent terminal `stop()`;
+- ready/message/error subscription wrappers preserve registration order and duplicate ownership,
+  survive disconnect/reconnect, and cannot expose emission to subscribers;
+- stop during nested event delivery suppresses all remaining callbacks; post-stop subscriptions
+  and emissions are inert, and stale attempt callbacks cannot reach publication;
 - snapshot reference stability between FSM commits.
 
 Transport package tests prove the public contract, all three adapter mappings, framing, and write admission.
@@ -517,9 +544,10 @@ Tradeoffs:
 
 ## Next steps
 
-1. Accept this ADR with `Transport.md`, `IdleWatchdog.md`, and `Keepalive.md`.
+1. Accept this ADR using the accepted `Transport.md`, `IdleWatchdog.md`, `Keepalive.md`, and `Coordination.md` decisions.
 2. Use the implemented transport adapters and keepalive orchestrator (with its internal watchdogs)
-   through their public contracts.
+   through their public contracts. Use the implemented Coordination Emitter for the client's
+   private ready/message/error registry.
 3. Scaffold `packages/realtime/` with envelope types/validators, the four-state client, stub-transport
    tests, the internal abort-aware ping/pong handler, and attempt-local liveness composition.
    Keep the handler private until another consumer needs its contract.

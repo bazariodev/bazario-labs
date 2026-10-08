@@ -394,6 +394,7 @@
           <li><a href="../.agent/ADR/Modules/Transport.md">Transport ADR</a></li>
           <li><a href="../.agent/ADR/Modules/IdleWatchdog.md">Idle Watchdog ADR</a></li>
           <li><a href="../.agent/ADR/Modules/Keepalive.md">Keepalive ADR</a></li>
+          <li><a href="../.agent/ADR/Modules/Coordination.md">Coordination ADR</a></li>
           <li><a href="../.agent/ADR/Modules/Realtime.md">Realtime ADR</a></li>
           <li><a href="../.agent/ROADMAP.md">Roadmap</a></li>
         </ul>
@@ -475,8 +476,16 @@
                 </dd>
               </div>
               <div>
-                <dt><code>@bazariodev/fsm</code> + <code>fsm-delays</code></dt>
-                <dd>Implement RealtimeClient state transitions and deterministic timers.</dd>
+                <dt><code>@bazariodev/fsm</code> + <code>fsm-effects</code> + <code>fsm-delays</code></dt>
+                <dd>Implement RealtimeClient state transitions and deterministic timers. FSM and fsm-effects supply fsm-delays' required runtime peers.</dd>
+              </div>
+              <div>
+                <dt><code>@bazariodev/coordination</code> · <code>Emitter</code></dt>
+                <dd>
+                  Provides the planned client's private ready/message/error subscriptions. Realtime
+                  owns emission and disposal; subscribers use its public methods. No queue or
+                  executor is needed for this integration.
+                </dd>
               </div>
               <div>
                 <dt><code>@bazariodev/keepalive</code></dt>
@@ -592,7 +601,11 @@
           </li>
           <li>
             <strong>Realtime stays adapter-free</strong>
-            <span>It consumes the transport contract; the application constructs the concrete adapter.</span>
+            <span>Transport is a type-only peer dependency, also present for local development; the application imports and constructs the concrete adapter.</span>
+          </li>
+          <li>
+            <strong>Realtime composes five direct runtime dependencies</strong>
+            <span>FSM, fsm-effects, fsm-delays, keepalive, and coordination's Emitter. FSM and fsm-effects supply delays' required peers. Idle-watchdog is transitive through keepalive; event emission stays private to the client.</span>
           </li>
           <li>
             <strong>Keepalive owns its watchdogs</strong>
@@ -672,7 +685,7 @@ type TransportFactory = () =&gt; Transport;</code></pre>
     </main>
 
     <footer>
-      <p>Proposed R2 architecture · revised 2026-09-27</p>
+      <p>Proposed R2 architecture · revised 2026-09-29</p>
     </footer>
   </body>
 </html>
