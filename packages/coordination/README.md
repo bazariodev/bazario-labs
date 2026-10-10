@@ -9,7 +9,7 @@ typed events. A `Queue` only stores values; executors own a private queue and de
 pnpm add @bazariodev/coordination
 ```
 
-The package has no runtime dependencies.
+The package has no runtime dependencies and requires Node.js 22 or newer in Node environments.
 
 ## Usage
 

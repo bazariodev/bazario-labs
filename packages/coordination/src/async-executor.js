@@ -12,24 +12,19 @@ export class AsyncExecutor {
       return Promise.reject(new TypeError('task must be a function'));
     }
 
-    let resolve;
-    let reject;
-    const result = new Promise((fulfill, fail) => {
-      resolve = fulfill;
-      reject = fail;
-    });
+    const { promise, resolve, reject } = Promise.withResolvers();
 
     this.#queue.enqueue({ task, resolve, reject });
     if (!this.#running) {
       this.#running = true;
       Promise.resolve().then(() => this.#run());
     }
-    return result;
+    return promise;
   }
 
   stop() {
     if (this.#stopReason) return;
-    this.#stopReason = createAbortError();
+    this.#stopReason = new DOMException('Executor is stopped', 'AbortError');
     const active = this.#activeController;
     this.#activeController = undefined;
     active?.abort(this.#stopReason);
@@ -60,8 +55,4 @@ export class AsyncExecutor {
     }
     this.#running = false;
   }
-}
-
-function createAbortError() {
-  return new DOMException('Executor is stopped', 'AbortError');
 }

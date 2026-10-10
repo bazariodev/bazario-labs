@@ -5,3 +5,4 @@
 ### Major Changes
 
 - Initial stable release of dependency-free FIFO storage, synchronous and asynchronous task executors, and a typed event emitter.
+- Requires Node.js 22 or newer for the native `Promise.withResolvers()` API.

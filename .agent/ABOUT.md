@@ -29,7 +29,7 @@ The goal of the repository is to provide reusable SDK building blocks for commun
 ## Tech Stack
 
 - Language: plain JavaScript for new implementations; TypeScript for public declarations and the existing FSM family
-- Runtime target: Node.js 20+
+- Runtime target: Node.js 22+
 - Package manager: pnpm
 - Workspace model: pnpm monorepo
 - Module output: ESM and CommonJS

@@ -46,7 +46,7 @@ browser:
 
 ## Getting started
 
-Requires Node.js >= 20 and pnpm >= 10. The workspace pins pnpm 10.33.2 in `package.json`.
+Requires Node.js >= 22 and pnpm >= 10. The workspace pins pnpm 10.33.2 in `package.json`.
 
 ```sh
 pnpm install
