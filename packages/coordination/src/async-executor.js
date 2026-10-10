@@ -22,7 +22,7 @@ export class AsyncExecutor {
     this.#queue.enqueue({ task, resolve, reject });
     if (!this.#running) {
       this.#running = true;
-      Promise.resolve().then(() => this.#drain());
+      Promise.resolve().then(() => this.#run());
     }
     return result;
   }
@@ -40,7 +40,7 @@ export class AsyncExecutor {
     this.stop();
   }
 
-  async #drain() {
+  async #run() {
     while (this.#queue.size > 0) {
       const { task, resolve, reject } = this.#queue.dequeue();
       const controller = new AbortController();
