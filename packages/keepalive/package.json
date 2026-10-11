@@ -1,7 +1,7 @@
 {
   "name": "@bazariodev/keepalive",
   "version": "0.1.1",
-  "description": "Connection liveness monitoring with idle watchdogs, abortable promise probes, and terminal failure notifications.",
+  "description": "Generic connection liveness with abortable probes and idle deadlines.",
   "license": "MIT",
   "author": "Bazario",
   "repository": {

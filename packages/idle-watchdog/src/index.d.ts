@@ -14,8 +14,9 @@ export type IdleWatchdogLogger = Readonly<{
 }>;
 
 export type IdleWatchdogOptions = Readonly<{
-  /** Fixed integer duration in milliseconds, from 1 through 2_147_483_647 inclusive. */
-  idleMs: number;
+  /** Integer milliseconds in [1, 2_147_483_647], or a function drawing one per arm().
+   * The function is called without a receiver; each result is validated before scheduling. */
+  idleMs: number | (() => number);
   /** Defaults to platform timers. Injecting a scheduler does not change the allowed range. */
   scheduler?: TimeoutScheduler;
   logger?: IdleWatchdogLogger;
@@ -23,9 +24,10 @@ export type IdleWatchdogOptions = Readonly<{
 
 /** Dependency-free, one-shot inactivity timer. Construction does not arm it. */
 export declare class IdleWatchdog implements Disposable {
-  /** Throws RangeError unless idleMs is an integer in [1, 2_147_483_647]. */
+  /** Validates a fixed duration immediately; functions are evaluated only by arm(). */
   constructor(options: IdleWatchdogOptions);
-  /** Start a fresh inactivity window from now, replacing any pending one. Inert after stop. */
+  /** Start a fresh inactivity window, replacing any pending one. Inert after stop.
+   * A throwing/invalid duration source propagates its error and leaves no timer for this arm. */
   arm(): void;
   /** Disarm without stopping. A later arm() starts a fresh window. */
   cancel(): void;

@@ -1,8 +1,6 @@
 # @bazariodev/keepalive
 
-Detects a dead connection. When no validated incoming traffic arrives for `idleMs`, Keepalive runs
-your probe (for example a ping) and gives it `deadlineMs` to succeed. If the probe times out or
-fails, Keepalive stops and tells you once. You write the probe; Keepalive owns the timing.
+Keepalive runs one abortable liveness probe after a quiet period. It owns idle and response timers. The connection owner decides what to do after failure.
 
 ## Install
 
@@ -10,114 +8,66 @@ fails, Keepalive stops and tells you once. You write the probe; Keepalive owns t
 pnpm add @bazariodev/keepalive
 ```
 
-`@bazariodev/idle-watchdog` is installed with it automatically.
+Keepalive has no peer dependencies. It installs [`@bazariodev/idle-watchdog`](https://www.npmjs.com/package/@bazariodev/idle-watchdog) as a runtime dependency.
 
 ## Usage
 
-This example wires Keepalive to a
-[`@bazariodev/transport`](https://www.npmjs.com/package/@bazariodev/transport) connection. Transport
-isn't a dependency of Keepalive, so install it for the example:
-
-```sh
-pnpm add @bazariodev/transport
-```
-
 ```js
 import { Keepalive } from '@bazariodev/keepalive';
-import { WebSocketAdapter } from '@bazariodev/transport';
-
-const transport = new WebSocketAdapter({ url: 'wss://example.com/realtime' });
 
 const keepalive = new Keepalive({
   idleMs: 30_000,
   deadlineMs: 5_000,
-  probe: (signal) => pingOnce(transport, signal),
-});
-
-keepalive.onFail((failure) => {
-  // Keepalive has already stopped and aborted the pending probe.
-  console.warn('Connection lost:', failure);
-  transport.close(); // then reconnect with a new transport and a new Keepalive
-});
-
-transport.start({
-  onOpen: () => keepalive.start(), // start once the connection is ready (after any handshake)
-  onMessage: (message) => {
-    if (!isValid(message)) return;
-    keepalive.activity(); // only validated incoming traffic counts
-    route(message); // a pong settles pingOnce's promise
+  probe: async (signal) => {
+    await checkPeer(signal);
   },
-  onError: (cause) => console.warn(cause),
-  onClose: () => keepalive.stop(),
 });
+
+keepalive.onFail((failure) => connectionOwner.retire(failure));
+keepalive.start();
 ```
 
-`pingOnce`, `isValid`, and `route` are yours. `pingOnce` sends one ping and returns a promise that:
-
-- registers its pong matcher before sending;
-- resolves only after the matching pong arrives on this connection and passes validation;
-- rejects if the ping can't be sent, for example when `transport.send` throws;
-- removes its matcher when it settles or when `signal` aborts (a successful probe's signal is
-  never aborted);
-- never retries or adds a timeout of its own.
+`checkPeer` is an application function. It must reject when it cannot confirm a response. Call `activity()` for validated incoming traffic. Stop the monitor when its connection ends. Create a new instance for each connection.
 
 ## Behavior
 
-- Construction doesn't start anything. `start()` begins the first idle window; calling it again
-  does nothing. Before `start()` and after Keepalive stops, `activity()` and `probeNow()` do nothing.
-- `activity()` restarts the idle window. Report only validated incoming traffic: outgoing writes
-  prove nothing about the peer.
-- When the idle window ends, Keepalive calls the probe. While a probe is pending, only its deadline
-  runs; `activity()` doesn't extend it.
-- `probeNow()` runs a probe right away, for example after the device wakes up. While a probe is
-  pending, extra calls are ignored.
-- When the probe fulfills, the deadline is cancelled and a new idle window starts.
-- On a timeout, a rejection, or a probe that throws, Keepalive aborts the probe's `signal`, stops
-  for good, then calls `onFail` listeners once with `{ type: 'timeout' }` or
-  `{ type: 'error', error }`. A probe that settles later is ignored.
-- `stop()` does the same cleanup silently, without calling `onFail`. After a failure or `stop()`,
-  create a new instance to monitor again.
-- The probe must return a promise that settles only after the real response is validated. An
-  `async` function that starts a request without awaiting it fulfills too early, and Keepalive can't
-  detect that. A probe that isn't a function, or doesn't return a promise, is reported as an `error`
-  failure when it runs.
-- Subscribe before `start()`: a failure isn't replayed to later subscribers. Listeners run
-  synchronously, in registration order, and the same function registered twice counts once.
-  Unsubscribing or calling `stop()` during delivery doesn't cancel it. A listener that throws is
-  logged, and the others still run.
-- Timers can fire late when the event loop is busy, the tab is throttled, or the device sleeps.
+- Construction is inert. `start()` arms the first idle timer.
+- `activity()` resets the idle timer only while started and no probe is active.
+- `probeNow()` starts a probe at once. Repeated calls coalesce while a probe is active.
+- The probe receives a fresh `AbortSignal`. The fixed `deadlineMs` is not extended by activity.
+- Fulfillment resumes idle monitoring. Rejection, timeout, or an invalid duration draw stops the instance and publishes one failure.
+- `stop()` is terminal and idempotent. It cancels timers and aborts active work. Late promise results have no effect.
+- Keepalive does not parse packets, create IDs, answer peer pings, retry, or replace connections. The probe owns its request format and response matching.
+- A probe can use `RpcClient.probe()`. A matched server error proves a round trip, but it does not prove that the application operation succeeded.
 
 ## API
 
-`new Keepalive({ idleMs, deadlineMs, probe, scheduler?, logger? })` creates a monitor that isn't
-started yet. Both durations and the probe are required; there are no default timings and no
-built-in request protocol. Invalid durations throw `RangeError`.
+| Option | Default | Purpose |
+| --- | --- | --- |
+| `probe` | required | `(signal: AbortSignal) => Promise<void>`. Fulfill only after the required response arrives. |
+| `idleMs` | required | Positive integer milliseconds or a function that returns one duration for each idle window. |
+| `deadlineMs` | required | Fixed positive integer response duration in milliseconds. |
+| `scheduler` | platform timers | Optional `KeepaliveScheduler` with opaque timer handles. |
+| `logger` | no-op | Optional non-throwing error logger. |
 
-| Option | Meaning |
+| Method | Purpose |
 | --- | --- |
-| `idleMs` | Inactivity window before the probe runs; an integer from `1` to `2_147_483_647` milliseconds. |
-| `deadlineMs` | Time the probe has to fulfill, with the same bounds; incoming traffic never extends it. |
-| `probe` | `(signal: AbortSignal) => Promise<void>`; fulfill after verifying this connection, reject on failure. |
-| `scheduler` | Optional `{ setTimeout, clearTimeout }`, shared by both timers; defaults to the platform timers. Methods must not throw or call back into Keepalive, and callbacks must run asynchronously. |
-| `logger` | Optional `{ error(message, metadata?) }` for listener exceptions; must not throw. Defaults to a no-op. |
+| `start()` | Start once. Later calls do nothing. |
+| `activity()` | Reset the idle timer when no probe is active. |
+| `probeNow()` | Start a probe now when started and idle. |
+| `onFail(listener)` | Observe the terminal `{ type: 'timeout' }` or `{ type: 'error', error }` result. |
+| `stop()` / `[Symbol.dispose]()` | Stop permanently and release owned work. |
 
-| Method | Behavior |
-| --- | --- |
-| `start()` | Begin idle monitoring. Calling it again doesn't extend the current window. |
-| `activity()` | Report validated incoming traffic; restarts the idle window unless a probe is pending. |
-| `probeNow()` | After `start()`, check right away; ignored while a probe is pending. |
-| `onFail(listener)` | Subscribe to the one terminal failure; returns an unsubscribe function. |
-| `stop()` / `[Symbol.dispose]()` | Abort pending work and dispose, silently. |
+Here, `connectionOwner` is an application-supplied helper that retires the current attempt. Durations must be integer milliseconds from 1 through 2,147,483,647. Scheduler methods and returned unsubscribe functions must not throw. Failure listeners are isolated; one listener error does not stop delivery to later listeners.
 
-Types: `KeepaliveOptions`, `KeepaliveProbe`, `KeepaliveFailure`, `KeepaliveScheduler`,
-`KeepaliveLogger`, `Unsubscribe`.
+## Errors
+
+Invalid options throw `TypeError` or `RangeError` during construction. A probe rejection or invalid duration draw produces `{ type: 'error', error }`. A missed deadline produces `{ type: 'timeout' }`. Keepalive reports failure once and does not choose a recovery action.
 
 ## TypeScript
 
-Add `"DOM"` (browsers) or `"WebWorker"` (workers) to `compilerOptions.lib`, or use Node typings that
-provide `AbortSignal`. The package doesn't add DOM types for you. It's plain JavaScript, shipped as
-ESM and CommonJS with TypeScript declarations.
+The package ships ESM and CommonJS declarations. Include `DOM` or `WebWorker` platform types. Public types include `KeepaliveOptions`, `KeepaliveProbe`, `KeepaliveFailure`, `KeepaliveScheduler`, `KeepaliveLogger`, and `Unsubscribe`.
 
 ## License
 
-MIT
+MIT. See [LICENSE](./LICENSE).

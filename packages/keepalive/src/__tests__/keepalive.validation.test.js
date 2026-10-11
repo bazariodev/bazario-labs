@@ -23,7 +23,7 @@ describe('Keepalive configuration and timer ports', () => {
     expect(options.probe).not.toHaveBeenCalled();
   });
 
-  it('clears platform deadlines on fulfillment and idle monitoring on disposal', async () => {
+  it('clears platform deadlines on fulfillment and disposal', async () => {
     vi.useFakeTimers();
     const round = deferred();
     const keepalive = new Keepalive({
@@ -38,6 +38,7 @@ describe('Keepalive configuration and timer ports', () => {
     expect(vi.getTimerCount()).toBe(1);
     round.resolve();
     await round.promise;
+    await Promise.resolve();
     expect(vi.getTimerCount()).toBe(1);
     keepalive[Symbol.dispose]();
     expect(vi.getTimerCount()).toBe(0);
@@ -46,18 +47,10 @@ describe('Keepalive configuration and timer ports', () => {
   it.each([
     undefined,
     null,
+    false,
     {},
-    'probe',
-    Promise.resolve(),
-  ])('reports a missing or non-callable probe %s as an operation error', (probe) => {
-    const { keepalive, scheduler, failures } = setup({ probe });
-    expect(failures).toEqual([]);
-    keepalive.start();
-    scheduler.advance(1000);
-    expect(failures).toEqual([{ type: 'error', error: expect.any(TypeError) }]);
-    expect(scheduler.pending()).toBe(0);
-    scheduler.advance(10000);
-    expect(failures).toHaveLength(1);
+  ])('rejects a non-callable probe %s', (probe) => {
+    expect(() => setup({ probe })).toThrow(TypeError);
   });
 
   it.each([

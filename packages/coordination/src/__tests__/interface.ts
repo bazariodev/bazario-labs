@@ -1,6 +1,18 @@
 // @ts-expect-error internal helper types are not public exports
 import type { EventKey } from '@bazariodev/coordination';
-import { AsyncExecutor, type Emitter, Queue } from '@bazariodev/coordination';
+import {
+  AsyncExecutor,
+  createJitter,
+  type Emitter,
+  Queue,
+} from '@bazariodev/coordination';
+
+const draw: () => number = createJitter({ minMs: 40_000, maxMs: 60_000 });
+void draw;
+// @ts-expect-error maximum is required
+createJitter({ minMs: 100 });
+// @ts-expect-error randomness returns a number
+createJitter({ minMs: 1, maxMs: 2, random: () => '0.5' });
 
 void (null as unknown as EventKey<object>);
 

@@ -2,7 +2,7 @@
 
 - Status: Accepted
 - Date: 2026-09-28
-- Revised: 2026-10-08
+- Revised: 2026-10-11
 
 ## Context
 
@@ -15,8 +15,8 @@ Synchronous execution needs predictable ordering when a task enqueues another ta
 execution also needs to await completion and settle a result for each submitted task. Event delivery
 is a separate concern: objects need to expose subscriptions without owning one another's behavior.
 
-The first planned package consumer is [RealtimeClient](Realtime.md): its `onReady`, `onMessage`,
-and `onError` methods will delegate to a private Emitter. State snapshots retain their FSM
+The first package consumers are [RealtimeClient](Realtime.md) and [RpcClient](Rpc.md). Realtime's
+`onReady`, `onMessage`, and `onError` methods use a private Emitter. State snapshots retain their FSM
 observation contract. Realtime needs neither an application send queue nor an executor for its
 coalesced probes. `net-monitor` is a possible later emitter consumer, subject to its own ADR.
 
@@ -75,7 +75,7 @@ failure, and disposal paths. Planned integrations do not count as stability evid
 
 | Export | Real consumer | Validation evidence | Validated in real use |
 | --- | --- | --- | --- |
-| `Emitter` | RealtimeClient planned; not implemented | None yet | No |
+| `Emitter` | [RealtimeClient](../../../packages/realtime/src/realtime-client.js) and [RpcClient](../../../packages/rpc/src/rpc-client.js), implemented, release pending | Realtime and RPC public behavior tests cover subscriptions and disposal | Yes, in workspace |
 | `Queue` | None committed | None yet | No |
 | `SyncExecutor` | None committed | None yet | No |
 | `AsyncExecutor` | None committed | None yet | No |
@@ -100,7 +100,7 @@ and interchangeable scheduling policies are deferred until a real consumer requi
 The emitter is independent of both executors. Emitting an event does not implicitly enqueue work.
 A consumer can explicitly enqueue a task from a listener when its workflow requires serialization.
 
-## Proposed initial-release contracts
+## 1.0.0 contracts
 
 The responsibility boundaries above are the architectural decision. The following behavior is the
 initial implementation contract; any changes must update this ADR and the public-behavior tests.
@@ -241,10 +241,11 @@ registration, `emit()` returns void, and `error` is an ordinary event name.
 
 ## Adoption boundaries
 
-Build the emitter first and use it in the planned RealtimeClient. One private emitter belongs to
+The emitter is used in RealtimeClient and RpcClient. One private emitter belongs to
 the logical client, survives restartable disconnect/reconnect, and is disposed at terminal stop.
-Realtime retains its generation checks and decides which events to publish. Its public API exposes
-only owner-controlled `onReady`, `onMessage`, and `onError` wrappers; it does not expose `emit`.
+Realtime uses current-attempt identity and channel disposal to ignore stale events. Its public API
+exposes `onReady`, `onMessage`, `onError`, `channel.subscribe`, and `channel.subscribeState`.
+It does not expose `emit`.
 
 Prove all four primitives with public-behavior tests and a runnable composition example. Refactoring
 existing consumers is a separate task after compatibility review.
@@ -300,7 +301,7 @@ Test observable behavior and public declarations rather than private queue repre
   rejection of unknown event names/wrong payloads, and AbortSignal in DOM and WebWorker checks.
 - Example: implement the workspace example described below, with assertions for direct FIFO storage,
   synchronous reentrant work, serial asynchronous work with handled cancellation, and an
-  event-driven class that keeps emission private. It is planned, not an existing production consumer.
+  event-driven class that keeps emission private. The workspace example now exists.
 - Package README: include a standalone handled-stop example that installs rejection handlers when
   submitting work, handles AbortError for discarded work, reports other failures, and awaits all
   results. npm readers must not need the repository example to learn safe disposal.
@@ -392,3 +393,20 @@ package and `examples/coordination/`, document its consumer API, and prepare its
 Then integrate the emitter while implementing RealtimeClient. The [roadmap](../../ROADMAP.md)
 places this work first within the existing R2 connectivity milestone. Later tasks move down in
 priority; shipped milestone labels and R1–R5 numbering remain unchanged.
+
+
+## Addendum: bounded jitter (2026-10-10)
+
+`createJitter({ minMs, maxMs, random? })` is a fifth independent export. It returns a function
+that draws uniformly distributed integer milliseconds between inclusive bounds. Bounds are ordered
+integers in `[1, 2_147_483_647]`; injected randomness must yield a finite value in `[0, 1)`.
+Rejecting zero at construction keeps every draw compatible with the watchdog's positive idle durations.
+Equal bounds skip randomness. Construction draws nothing. The helper owns no timers, retries, or
+lifecycle, so it fits coordination without becoming another scheduler.
+
+The concrete consumer is Keepalive's idle cadence: inject the draw function as `idleMs` through
+RealtimeClient or directly into Keepalive. IdleWatchdog performs and validates each draw when armed.
+A pending response retains its fixed deadline. The application supplies the dependency through DI;
+Keepalive and IdleWatchdog do not acquire a coordination dependency. Fixed timing remains default.
+
+RealtimeClient and RpcClient now use private Emitters in the implemented workspace packages.

@@ -26,6 +26,9 @@ const logger: IdleWatchdogLogger = {
   },
 };
 const options: IdleWatchdogOptions = { idleMs: 100, scheduler, logger };
+new IdleWatchdog({ idleMs: () => 100, scheduler });
+// @ts-expect-error duration sources are synchronous
+new IdleWatchdog({ idleMs: async () => 100 });
 const watchdog = new IdleWatchdog(options);
 const unsubscribe: Unsubscribe = watchdog.onIdle(() => {});
 const armResult: void = watchdog.arm();

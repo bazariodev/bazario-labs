@@ -3,45 +3,45 @@ import type { TimeoutScheduler } from '@bazariodev/idle-watchdog';
 
 export type Unsubscribe = () => void;
 
-/** Shared watchdog scheduler: asynchronous timers, opaque handles, and non-throwing methods. */
+/** Platform-style timers with opaque handles and non-throwing methods. */
 export type KeepaliveScheduler = TimeoutScheduler;
 
-/** Verify this connection with a fresh abortable request; fulfill after validation, reject on failure. */
+/** Verify the connection with a fresh abortable request. Fulfill after validation. */
 export type KeepaliveProbe = (signal: AbortSignal) => Promise<void>;
 
-/** At most one terminal failure per instance. Error failures preserve the original cause. */
+/** One terminal failure per instance. Error failures preserve the original cause. */
 export type KeepaliveFailure =
   | Readonly<{ type: 'timeout' }>
   | Readonly<{ type: 'error'; error: unknown }>;
 
-/** Must not throw. Reports listener exceptions with their original cause. */
+/** Must not throw. Reports failure-listener exceptions with their original cause. */
 export type KeepaliveLogger = Readonly<{
   error: (message: string, metadata?: unknown) => void;
 }>;
 
 export type KeepaliveOptions = Readonly<{
-  /** Inactivity before a probe. Integer milliseconds in [1, 2_147_483_647]. */
-  idleMs: number;
-  /** Time to await probe fulfillment. Same bounds as idleMs; never extended by activity. */
-  deadlineMs: number;
   probe: KeepaliveProbe;
+  /** Inactivity before a probe, in integer milliseconds from 1 to 2_147_483_647. */
+  idleMs: number | (() => number);
+  /** Maximum response wait, in integer milliseconds from 1 to 2_147_483_647. */
+  deadlineMs: number;
   scheduler?: KeepaliveScheduler;
   logger?: KeepaliveLogger;
 }>;
 
-/** Liveness orchestration over two IdleWatchdogs. Construction is inert; failure is terminal. */
+/** One abortable probe and two watchdogs. Construction does not start work. */
 export declare class Keepalive implements Disposable {
-  /** Delegates duration validation to the watchdogs; invalid durations throw RangeError. */
+  /** Invalid fixed durations throw RangeError. Construction does not start work. */
   constructor(options: KeepaliveOptions);
-  /** Start one inactivity window. Idempotent: repeated starts do not extend it or restart failure. */
+  /** Start idle monitoring once. Inert after stop or failure. */
   start(): void;
-  /** Report validated incoming traffic; refresh idle monitoring when started with no probe pending. */
+  /** Reset the idle window when started and no probe is active. */
   activity(): void;
-  /** Invoke a probe after start; repeated/re-entrant requests coalesce while one is pending. */
+  /** Start a probe now. Repeated or re-entrant requests coalesce. */
   probeNow(): void;
-  /** Subscribe to terminal failure; the delivery snapshot completes even if a listener calls stop(). */
+  /** Register one terminal failure listener. Delivery finishes if a listener calls stop(). */
   onFail(listener: (failure: KeepaliveFailure) => void): Unsubscribe;
-  /** Terminal, silent, and idempotent. Abort pending work and dispose watchdogs and listeners. */
+  /** Stop permanently, cancel timers, abort active work, and clear listeners silently. */
   stop(): void;
   [Symbol.dispose](): void;
 }

@@ -26,9 +26,9 @@ export function setup({
   const keepalive = new Keepalive({
     idleMs: 1000,
     deadlineMs: 100,
-    probe,
     scheduler,
     logger,
+    probe,
     ...options,
   });
   const failures = [];

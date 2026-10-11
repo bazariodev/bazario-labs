@@ -115,7 +115,7 @@ describe('Keepalive lifecycle and failure subscriptions', () => {
     expect(failures).toEqual([{ type: 'timeout' }]);
   });
 
-  it('delivers the failure even when abort cleanup stops and unsubscribes', () => {
+  it('delivers the failure after abort cleanup stops and unsubscribes', () => {
     const { keepalive, scheduler, rounds, failures } = setup();
     keepalive.start();
     keepalive.probeNow();

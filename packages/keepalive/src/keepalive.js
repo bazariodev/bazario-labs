@@ -1,5 +1,7 @@
 import { IdleWatchdog } from '@bazariodev/idle-watchdog';
 
+import { assertOptions } from './options.js';
+
 const NOOP = () => {};
 const NOOP_LOGGER = { error: NOOP };
 
@@ -13,7 +15,16 @@ export class Keepalive {
   #stopped = false;
   #listeners = new Map();
 
-  constructor({ idleMs, deadlineMs, probe, scheduler, logger = NOOP_LOGGER }) {
+  constructor(options) {
+    assertOptions(options);
+    const {
+      probe,
+      idleMs,
+      deadlineMs,
+      scheduler,
+      logger = NOOP_LOGGER,
+    } = options;
+
     this.#probe = probe;
     this.#logger = logger;
     this.#idle = new IdleWatchdog({ idleMs, scheduler });
@@ -29,25 +40,33 @@ export class Keepalive {
   }
 
   activity() {
-    if (!this.#started || this.#stopped || this.#pending !== null) return;
-    this.#idle.arm();
+    if (!this.#started || this.#stopped || this.#pending) return;
+    try {
+      this.#idle.arm();
+    } catch (error) {
+      this.#finish({ type: 'error', error });
+    }
   }
 
   probeNow() {
-    if (!this.#started || this.#stopped || this.#pending !== null) return;
+    if (!this.#started || this.#stopped || this.#pending) return;
+
+    const pending = { controller: new AbortController() };
+    this.#pending = pending;
+
     try {
-      const pending = new AbortController();
-      this.#pending = pending;
       this.#idle.cancel();
       this.#deadline.arm();
-      const promise = this.#probe(pending.signal);
-      // Attach both handlers even if the probe stops the monitor before returning.
+      const probe = this.#probe;
+      const promise = probe(pending.controller.signal);
+      if (typeof promise?.then !== 'function')
+        throw new TypeError('probe must return a promise.');
       promise.then(
         () => this.#settle(pending),
         (error) => this.#settle(pending, { type: 'error', error }),
       );
     } catch (error) {
-      this.#finish({ type: 'error', error });
+      this.#settle(pending, { type: 'error', error });
     }
   }
 
@@ -75,6 +94,7 @@ export class Keepalive {
       this.#finish(failure);
       return;
     }
+
     this.#pending = null;
     this.#deadline.cancel();
     this.activity();
@@ -83,22 +103,23 @@ export class Keepalive {
   #finish(failure) {
     if (this.#stopped) return;
     this.#stopped = true;
+
     const pending = this.#pending;
     this.#pending = null;
-    // Snapshot before cleanup: abort or owner callbacks may unsubscribe or stop.
     const listeners = this.#listeners;
     this.#listeners = new Map();
+
     this.#idle.stop();
     this.#deadline.stop();
-    pending?.abort();
-    if (failure) {
-      listeners.forEach((_, listener) => {
-        try {
-          listener(failure);
-        } catch (error) {
-          this.#logger.error('Keepalive failure listener threw.', error);
-        }
-      });
+    pending?.controller.abort();
+
+    if (!failure) return;
+    for (const listener of listeners.keys()) {
+      try {
+        listener(failure);
+      } catch (error) {
+        this.#logger.error('Keepalive failure listener threw.', error);
+      }
     }
   }
 }

@@ -2,7 +2,7 @@
 
 - Status: Accepted
 - Date: 2026-09-13
-- Revised: 2026-09-27
+- Revised: 2026-10-11
 
 ## Context
 
@@ -17,7 +17,7 @@ The reusable concern is only timing:
 3. if no later activity arrives before the deadline, subscribers receive one idle notification.
 
 The watchdog cannot decide what activity means. For a realtime connection that decision belongs to
-`RealtimeClient`, which reports validated incoming packets as liveness activity. The watchdog
+`Keepalive`, which subscribes to validated incoming packets. The watchdog
 also cannot decide whether idleness should send a ping, refresh a lease, log a diagnostic, close a
 transport, or reconnect. Those are consumer policies.
 
@@ -60,7 +60,7 @@ type IdleWatchdogLogger = Readonly<{
 }>;
 
 type IdleWatchdogOptions = Readonly<{
-  idleMs: number;
+  idleMs: number | (() => number);
   scheduler?: TimeoutScheduler;
   logger?: IdleWatchdogLogger;
 }>;
@@ -84,8 +84,9 @@ the first timer, while a timer is pending, and after expiry or cancellation. The
 ## Behavioral rules
 
 - construction is inert; no timer is armed until the first `arm()`;
-- `idleMs` is fixed for an instance and must be an integer from `1` through `2_147_483_647`
-  milliseconds, inclusive; invalid values throw `RangeError` without clamping or rounding;
+- `idleMs` is a fixed integer or a function drawing an integer from `1` through `2_147_483_647`
+  milliseconds, inclusive. Functions run once per arm without a receiver; invalid values throw
+  `RangeError` without clamping or rounding. A failed draw leaves no timer of its own;
 - `arm()` clears the current handle, invalidates its callback generation, and arms one new timeout;
 - a callback from a cleared or superseded timer is ignored even if the platform had already queued it;
 - the active callback disarms the watchdog before notifying a snapshot of the current subscribers;
@@ -115,11 +116,11 @@ not throw.
 
 ## Ownership and realtime composition
 
-`RealtimeClient` reports validated incoming packets to `Keepalive`. Outgoing writes do not prove
+`Keepalive` subscribes to the ready channel for validated incoming packets. Outgoing writes do not prove
 peer reachability and do not refresh its idle window. Keepalive owns both watchdogs:
 
 ```text
-RealtimeClient --activity/probeNow--> Keepalive
+Ready channel --validated packets--> Keepalive <--probeNow-- RealtimeClient
                                        ├─ IdleWatchdog(idleMs)
                                        └─ IdleWatchdog(deadlineMs)
 ```
@@ -142,15 +143,18 @@ In v1:
 Not in v1:
 
 - intervals, cron, pause/resume, persisted deadlines, or background-worker scheduling;
-- dynamic per-call durations, warning thresholds, retry budgets, or multiple idle stages;
+- warning thresholds, retry budgets, or multiple idle stages;
 - resource inspection, traffic classification, ping/pong, close, reconnect, or recovery policy;
 - keepalive imports or knowledge; dependency direction is keepalive to watchdog;
 - FSM state, snapshots, React bindings, or a generic event-emitter framework.
 
 ## Validation and testing
 
-Construction throws `RangeError` when `idleMs` is not an integer in `[1, 2_147_483_647]`, before
-any scheduler operation. This rejects fractions, non-finite numbers, and values outside the range.
+Construction validates fixed `idleMs` values as integers in `[1, 2_147_483_647]`. Duration
+functions are validated when armed, before scheduling; this rejects fractions, non-finite numbers,
+and values outside the range. A source that cancels or stops during its draw cannot re-arm it.
+Coordination's `createJitter` is an optional injected duration source; the watchdog has no dependency
+on that package and no knowledge of random policy.
 The scheduler and logger are typed injections and follow the same trust boundary as the existing
 FSM modules.
 
@@ -169,8 +173,8 @@ Required public-behavior tests:
 - invalid `idleMs` values fail construction with either scheduler;
 - both inclusive timing bounds are preserved with platform and injected schedulers.
 
-The realtime integration test must separately prove that `RealtimeClient` reports only valid or
-validated incoming traffic to keepalive and disposes it with the attempt. Keepalive's tests prove ownership of
+The realtime integration test must prove that the channel passes only validated incoming traffic
+to Keepalive and that RealtimeClient disposes Keepalive with the attempt. Keepalive's tests prove ownership of
 both watchdogs and that activity cannot extend a pending probe deadline.
 
 ## Alternatives considered
@@ -206,13 +210,11 @@ Tradeoffs:
 
 ## Next steps
 
-1. Release the implemented `packages/idle-watchdog/` through its minor changeset (`0.0.0` → `0.1.0`).
-2. Release the keepalive orchestrator, which composes two watchdog instances internally.
-3. Integrate one keepalive per ready `RealtimeClient` attempt and test traffic and recovery ownership.
+Release the implemented duration-function support through the pending `0.2.0` changeset.
 
 ## Summary
 
 `@bazariodev/idle-watchdog` is a one-shot, re-armable inactivity timer. Consumers explicitly call
 `arm()` when activity occurs and subscribe through `onIdle`; the watchdog only owns timer mechanics
-and notification. Keepalive owns inactivity and response-window orchestration. `RealtimeClient`
-classifies incoming traffic and owns the connection lifecycle and recovery policy.
+and notification. Keepalive owns ping/pong, inactivity, and response-window orchestration over
+validated channel packets. `RealtimeClient` owns the connection lifecycle and recovery policy.

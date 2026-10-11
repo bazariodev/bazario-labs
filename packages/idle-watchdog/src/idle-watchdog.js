@@ -7,6 +7,13 @@ const DEFAULT_SCHEDULER = {
   clearTimeout: (handle) => clearTimeout(handle),
 };
 
+function assertDuration(idleMs) {
+  if (!Number.isInteger(idleMs) || idleMs < MIN_IDLE_MS || idleMs > MAX_IDLE_MS)
+    throw new RangeError(
+      `Duration must be an integer between ${MIN_IDLE_MS} and ${MAX_IDLE_MS} milliseconds; received ${String(idleMs)}.`,
+    );
+}
+
 export class IdleWatchdog {
   #idleMs;
   #scheduler;
@@ -16,15 +23,7 @@ export class IdleWatchdog {
   #stopped = false;
 
   constructor({ idleMs, scheduler = DEFAULT_SCHEDULER, logger = NOOP_LOGGER }) {
-    if (
-      !Number.isInteger(idleMs) ||
-      idleMs < MIN_IDLE_MS ||
-      idleMs > MAX_IDLE_MS
-    ) {
-      throw new RangeError(
-        `Duration must be an integer between ${MIN_IDLE_MS} and ${MAX_IDLE_MS} milliseconds; received ${String(idleMs)}.`,
-      );
-    }
+    if (typeof idleMs !== 'function') assertDuration(idleMs);
     this.#idleMs = idleMs;
     this.#scheduler = scheduler;
     this.#logger = logger;
@@ -37,6 +36,16 @@ export class IdleWatchdog {
     // Identity guards queued callbacks even when a scheduler reuses timer handles.
     const timer = {};
     this.#timer = timer;
+    let delayMs;
+    try {
+      const idleMs = this.#idleMs;
+      delayMs = typeof idleMs === 'function' ? idleMs() : idleMs;
+      assertDuration(delayMs);
+    } catch (error) {
+      if (this.#timer === timer) this.#timer = null;
+      throw error;
+    }
+    if (this.#timer !== timer) return;
     timer.handle = this.#scheduler.setTimeout(() => {
       if (this.#timer !== timer) return;
       // Disarm before notifying so a subscriber can safely re-arm the watchdog.
@@ -49,13 +58,14 @@ export class IdleWatchdog {
           this.#logger.error('IdleWatchdog idle listener threw.', error);
         }
       }
-    }, this.#idleMs);
+    }, delayMs);
   }
 
   cancel() {
     const timer = this.#timer;
     this.#timer = null;
-    if (timer !== null) this.#scheduler.clearTimeout(timer.handle);
+    if (timer !== null && Object.hasOwn(timer, 'handle'))
+      this.#scheduler.clearTimeout(timer.handle);
   }
 
   onIdle(listener) {

@@ -47,7 +47,9 @@ describe('Keepalive idle and probe windows', () => {
   it.each([
     50, 100, 5000,
   ])('suspends idle monitoring during a probe with idleMs=%s', (idleMs) => {
-    const { keepalive, scheduler, probe, failures } = setup({ idleMs });
+    const { keepalive, scheduler, probe, failures } = setup({
+      idleMs,
+    });
     keepalive.start();
     keepalive.probeNow();
     scheduler.advance(60);

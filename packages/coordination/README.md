@@ -1,7 +1,7 @@
 # @bazariodev/coordination
 
 Small in-process building blocks for FIFO storage, synchronous and asynchronous task execution, and
-typed events. A `Queue` only stores values; executors own a private queue and decide when tasks run.
+typed events, and bounded jitter functions. A `Queue` only stores values; executors own a private queue and decide when tasks run.
 
 ## Install
 
@@ -80,6 +80,21 @@ try {
 }
 ```
 
+## Jitter without timers
+
+```js
+import { createJitter } from '@bazariodev/coordination';
+
+const nextIdleMs = createJitter({ minMs: 40_000, maxMs: 60_000 });
+const delayMs = nextIdleMs(); // An integer within the inclusive range.
+```
+
+Inject `nextIdleMs` into Keepalive or IdleWatchdog's `idleMs` option. The function owns no
+clock, timer, retry counter, or lifecycle. Every draw uses `random` (default `Math.random`),
+except equal bounds return their fixed value without sampling. Tests can inject `random: () => 0.5`.
+Bounds must be ordered integers in `[1, 2_147_483_647]`; zero is rejected at construction so every
+draw is a valid positive idle duration. Random results must be finite numbers in `[0, 1)`.
+
 ## Behavior
 
 - `Queue` stores any value, including `undefined`, in FIFO order. It never calls or schedules values.
@@ -110,6 +125,7 @@ try {
 
 | Export | Main methods |
 | --- | --- |
+| `createJitter({ minMs, maxMs, random? })` | Returns a `() => number` duration function. |
 | `Queue<Value>` | `enqueue(value)`, `dequeue()`, `peek()`, `size`, `clear()` |
 | `SyncExecutor` | `enqueue(task)`, `stop()`, `[Symbol.dispose]()` |
 | `AsyncExecutor` | `enqueue(task)`, `stop()`, `[Symbol.dispose]()` |
@@ -161,6 +177,8 @@ ignores its signal may still fulfill after stop.
 
 | Situation | Result |
 | --- | --- |
+| Invalid jitter bounds / random result | Throws `RangeError` at construction / draw respectively. |
+| Non-function jitter random source | Throws `TypeError` at construction. |
 | Sync task throws | Pending drain is cleared; the same error is thrown from the outer enqueue. |
 | Async task throws or rejects | That submission rejects with the original error; draining continues. |
 | Submit after SyncExecutor stops | Throws a `DOMException` named `AbortError`. |

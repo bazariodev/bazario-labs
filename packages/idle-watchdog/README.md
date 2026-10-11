@@ -39,9 +39,15 @@ socket listener, which is why the example removes it first.
 ## API
 
 `new IdleWatchdog({ idleMs, scheduler?, logger? })` creates a watchdog that isn't armed yet.
-`idleMs` is fixed for the instance and must be an integer from `1` to `2_147_483_647` milliseconds
-(about 24.85 days). Other values throw `RangeError`; they're never clamped or rounded. Injecting a
-scheduler doesn't change the allowed range.
+`idleMs` is an integer from `1` to `2_147_483_647` milliseconds (about 24.85 days), or a
+function returning one. Fixed values are checked at construction. A function is called without a
+receiver once per `arm()` and its result is checked before scheduling. Invalid values throw
+`RangeError`; a throwing function propagates its error. The failed arm leaves no timer of its own.
+Durations are never clamped or rounded. Injecting a scheduler does not change the allowed range.
+
+For optional jitter, inject `idleMs: createJitter({ minMs: 40_000, maxMs: 60_000 })` from
+[`@bazariodev/coordination`](https://www.npmjs.com/package/@bazariodev/coordination).
+The watchdog remains dependency-free and owns only the timer, not the random policy.
 
 | Method | Behavior |
 | --- | --- |
