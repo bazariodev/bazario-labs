@@ -1,0 +1,37 @@
+import Realtime = require('@bazariodev/realtime');
+
+import type { Emitter } from '@bazariodev/coordination';
+import type { Fsm } from '@bazariodev/fsm';
+import type { Keepalive } from '@bazariodev/keepalive';
+import type { Transport } from '@bazariodev/transport';
+
+type Context = Readonly<{ attempt: number }>;
+declare const fsm: Fsm<
+  Realtime.RealtimeState,
+  Realtime.RealtimeLifecycleEvent,
+  Context
+>;
+declare const events: Emitter<Realtime.RealtimeEventMap<unknown>>;
+declare const transport: Transport;
+declare const keepalive: Keepalive;
+const jsonOptions: Realtime.JsonTransportOptions = {
+  maxIncomingBytes: 2_097_152,
+  warn(message) {
+    void message;
+  },
+};
+const deps: Realtime.RealtimeClientDeps<unknown> = {
+  fsm,
+  events,
+  createTransport: () => new Realtime.JsonTransport(transport, jsonOptions),
+  createKeepalive: () => keepalive,
+  retry: null,
+};
+const core = new Realtime.RealtimeClient(deps);
+const client = Realtime.createRealtimeClient({
+  createTransport: () => transport,
+  retry: null,
+});
+client.send('hello');
+core.stop();
+client.stop();

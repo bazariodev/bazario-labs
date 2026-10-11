@@ -111,6 +111,25 @@ importers:
         specifier: workspace:^
         version: link:../idle-watchdog
 
+  packages/realtime:
+    dependencies:
+      '@bazariodev/coordination':
+        specifier: workspace:^
+        version: link:../coordination
+      '@bazariodev/fsm':
+        specifier: workspace:^
+        version: link:../fsm
+      '@bazariodev/keepalive':
+        specifier: workspace:^
+        version: link:../keepalive
+    devDependencies:
+      '@bazariodev/transport':
+        specifier: workspace:^
+        version: link:../transport
+      ws:
+        specifier: ^8.21.0
+        version: 8.21.0
+
   packages/transport: {}
 
 packages:
