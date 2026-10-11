@@ -1,0 +1,51 @@
+{
+  "name": "@bazariodev/rpc",
+  "version": "0.0.0",
+  "description": "Bounded request/response correlation and notifications over an injected realtime message channel.",
+  "license": "MIT",
+  "author": "Bazario",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Bazariodev/bazario-labs.git",
+    "directory": "packages/rpc"
+  },
+  "homepage": "https://github.com/Bazariodev/bazario-labs/tree/main/packages/rpc#readme",
+  "type": "module",
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": {
+        "types": "./dist/index.d.ts",
+        "default": "./dist/index.js"
+      },
+      "require": {
+        "types": "./dist/index.d.cts",
+        "default": "./dist/index.cjs"
+      }
+    }
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "CHANGELOG.md",
+    "LICENSE"
+  ],
+  "sideEffects": false,
+  "scripts": {
+    "build": "tsup",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit && tsc --noEmit --lib ES2022,WebWorker"
+  },
+  "dependencies": {
+    "@bazariodev/coordination": "workspace:^"
+  },
+  "devDependencies": {
+    "@bazariodev/realtime": "workspace:^"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}

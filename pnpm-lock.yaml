@@ -130,6 +130,16 @@ importers:
         specifier: ^8.21.0
         version: 8.21.0
 
+  packages/rpc:
+    dependencies:
+      '@bazariodev/coordination':
+        specifier: workspace:^
+        version: link:../coordination
+    devDependencies:
+      '@bazariodev/realtime':
+        specifier: workspace:^
+        version: link:../realtime
+
   packages/transport: {}
 
 packages:
