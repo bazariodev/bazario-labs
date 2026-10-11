@@ -2,7 +2,7 @@
 
 - Status: Accepted
 - Date: 2026-07-06
-- Revised: 2026-09-22
+- Revised: 2026-10-11
 
 ## Context
 
@@ -54,9 +54,9 @@ one attempt. `RealtimeClient` creates a fresh instance for every initial connect
 | local write admission/backpressure signal | concrete transport adapter | RPC or domain packages |
 | connection intent and observable lifecycle | `RealtimeClient` | transport |
 | connect timeout and reconnect backoff | `RealtimeClient` | transport, `net-monitor` |
-| connect/ready and message envelopes | `RealtimeClient` | transport |
-| liveness request/response matching and validation | internal realtime protocol handler by default; custom probe owner when supplied | transport, Keepalive |
-| authentication packet and protocol validation | `RealtimeClient` | transport |
+| connect/ready and message envelopes | private `ConnectionChannel` | transport |
+| liveness request/response matching | channel-aware Keepalive by default; custom probe owner when supplied | transport |
+| authentication packet and protocol validation | private `ConnectionChannel` | transport |
 | online/visibility/sleep detection | `net-monitor` | transport, `RealtimeClient` |
 | application correlation, acknowledgement, timeout, safe retry | `rpc` | transport, `RealtimeClient` |
 | durable outbox, deduplication, state resync | domain package | transport, `RealtimeClient`, `rpc` |
@@ -93,8 +93,8 @@ type TransportFactory = () => Transport;
 ```
 
 The contract intentionally has no `connect()`, `reconnect()`, `disconnect()`, `ready`, retry policy,
-liveness policy, or message subscriptions. Traffic resets and liveness effects belong to the owner
-that spans attempts; timer mechanics and promise-probe monitoring compose behind it.
+liveness policy, or message subscriptions. The private channel validates packets. Keepalive
+subscribes to those packets and owns ping/pong, idle timing, and response deadlines.
 
 ### Adapter obligations
 
@@ -122,9 +122,8 @@ that spans attempts; timer mechanics and promise-probe monitoring compose behind
 - An adapter does not parse application packets, authenticate, send heartbeats, reconnect, or observe
   browser network state.
 
-`RealtimeClient` still guards callbacks with its own attempt generation. The port contract prevents
-bad adapter behavior; the generation guard prevents an unavoidable late platform callback from
-corrupting a newer logical attempt.
+`RealtimeClient` uses current-attempt identity and channel disposal to ignore late callbacks. The
+port contract limits adapter callbacks; the client also guards against late platform callbacks.
 
 ## WebSocket adapter
 
@@ -147,6 +146,12 @@ type WebSocketAdapterOptions = Readonly<{
 For each `start()` it resolves the URL, creates one WebSocket, sets `binaryType = 'arraybuffer'`, and
 maps platform events to `TransportHandlers`. Text stays `string`; `ArrayBuffer` becomes
 `Uint8Array`. An unexpected data kind is reported and the attempt is closed.
+
+The adapter reads `readyState` before it calls the logger or `onError`. An error while the socket is
+`OPEN` is diagnostic. An error while it is `CLOSING` or `CLOSED` is followed by one unclean
+`onClose({ clean: false })` when the adapter still owns the socket. This ends the attempt without
+waiting for a native close event. The synthetic close omits `code` and `reason` because the browser
+did not provide close metadata. The adapter ignores a later native close event.
 
 `send()` checks `WebSocket.OPEN` and the projected `bufferedAmount` before calling the platform API.
 It throws a plain error when not open or when the buffer limit would be exceeded. A platform write
@@ -299,19 +304,16 @@ Tradeoffs:
 
 ## Next steps
 
-Implemented: `packages/transport/`, containing the shared contract, all three adapters, public
-declarations, consumer-interface checks, and behavioral tests. The initial `0.1.0` release is staged
-through Changesets.
+`@bazariodev/transport` versions `0.1.0`, `0.2.0`, and `0.2.1` are published. The workspace
+contains the shared contract, three adapters, declarations, and tests.
 
-1. Compose the implemented keepalive orchestrator, which owns its internal idle watchdogs.
-2. Inject `TransportFactory` into `RealtimeClient` and prove reconnect with a stub transport.
-3. Validate the HTTP framing and WebTransport stream contract against the deployment's server.
+Validate HTTP framing and the WebTransport stream contract against the deployment's server.
 
 ## Summary
 
 `@bazariodev/transport` contains one physical-attempt contract and its platform adapters, starting
-with WebSocket, HTTP, and WebTransport. It does not own logical connection behavior. `RealtimeClient` composes over the
-port and remains the single owner of readiness, handshake, accepted-traffic classification,
-transport effects, reconnect, and state across attempts. `Keepalive` owns liveness orchestration
-over internal `IdleWatchdog` instances and an injected abortable promise probe. See the [realtime client hierarchy](../../../docs/realtime-client-hierarchy.html) for the
-complete dependency graph and concern matrix.
+with WebSocket, HTTP, and WebTransport. It does not own logical connection behavior. The private
+`ConnectionChannel` owns the handshake, packet checks, and transport calls. `RealtimeClient` owns
+readiness, reconnect, and state across attempts. `Keepalive` owns ping/pong and two watchdogs over
+the injected channel. See the current [Realtime ADR](Realtime.md) for the ownership graph. The
+[realtime client hierarchy](../../../docs/realtime-client-hierarchy.html) is a historical design snapshot.

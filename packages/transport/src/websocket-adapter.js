@@ -2,7 +2,10 @@ import { DEFAULT_LIMIT_BYTES } from './limits.js';
 import { NOOP_LOGGER } from './logger.js';
 
 const OPEN = 1;
+const CLOSING = 2;
+const CLOSED = 3;
 const encoder = new TextEncoder();
+const ignoreError = () => {};
 
 export class WebSocketAdapter {
   #options;
@@ -29,47 +32,73 @@ export class WebSocketAdapter {
 
     this.#handlers = handlers;
     this.#logger.debug('WebSocketAdapter starting.');
+    if (!this.#isCurrent(handlers)) return;
+
     const { url, protocols, WebSocket } = this.#options;
+    let resolvedUrl;
+    let socket;
     try {
-      this.#socket = new WebSocket(
-        typeof url === 'function' ? url() : url,
-        protocols,
-      );
+      resolvedUrl = typeof url === 'function' ? url() : url;
+      if (!this.#isCurrent(handlers)) return;
+      socket = new WebSocket(resolvedUrl, protocols);
     } catch (cause) {
-      this.#detach();
+      if (this.#isCurrent(handlers)) this.#detach();
       this.#logger.error('WebSocketAdapter failed to start.', cause);
       throw cause;
     }
-    const socket = this.#socket;
+
+    if (!this.#isCurrent(handlers)) {
+      this.#detachSocket(socket);
+      try {
+        socket.close();
+      } catch (cause) {
+        try {
+          this.#logger.error(
+            'WebSocketAdapter could not close a retired socket.',
+            cause,
+          );
+        } catch {}
+      }
+      return;
+    }
+
+    this.#socket = socket;
     socket.binaryType = 'arraybuffer';
+    if (!this.#isCurrent(handlers, socket)) return;
 
     socket.onopen = () => {
-      if (!this.#handlers) return;
+      if (!this.#isCurrent(handlers, socket)) return;
       this.#logger.debug('WebSocketAdapter opened.');
-      this.#handlers.onOpen();
+      if (!this.#isCurrent(handlers, socket)) return;
+      handlers.onOpen();
     };
-    socket.onerror = (cause) => this.#error(cause);
-    socket.onmessage = ({ data }) => {
+    socket.onerror = (cause) => this.#error(cause, handlers, socket);
+    socket.onmessage = (event) => {
+      if (!this.#isCurrent(handlers, socket)) return;
+      const { data } = event;
       if (typeof data === 'string') {
-        this.#handlers?.onMessage(data);
+        if (this.#isCurrent(handlers, socket)) handlers.onMessage(data);
       } else if (data instanceof ArrayBuffer) {
-        this.#handlers?.onMessage(new Uint8Array(data));
+        if (this.#isCurrent(handlers, socket))
+          handlers.onMessage(new Uint8Array(data));
       } else {
         try {
-          this.#error(new TypeError('Expected text or ArrayBuffer data.'));
+          this.#error(
+            new TypeError('Expected text or ArrayBuffer data.'),
+            handlers,
+            socket,
+          );
         } finally {
-          this.close();
+          if (this.#isCurrent(handlers, socket)) this.close();
         }
       }
     };
     socket.onclose = ({ code, reason, wasClean }) => {
-      const handlers = this.#handlers;
+      if (!this.#isCurrent(handlers, socket)) return;
       this.#detach();
-      if (handlers) {
-        const close = { code, reason, clean: wasClean };
-        this.#logger.debug('WebSocketAdapter closed.', close);
-        handlers.onClose(close);
-      }
+      const close = { code, reason, clean: wasClean };
+      this.#logger.debug('WebSocketAdapter closed.', close);
+      handlers.onClose(close);
     };
   }
 
@@ -101,10 +130,24 @@ export class WebSocketAdapter {
     socket?.close();
   }
 
-  #error(cause) {
-    if (!this.#handlers) return;
+  #error(cause, handlers, socket) {
+    if (!this.#isCurrent(handlers, socket)) return;
+    const isTerminal =
+      socket.readyState === CLOSING || socket.readyState === CLOSED;
     this.#logger.error('WebSocketAdapter error.', cause);
-    this.#handlers.onError(cause);
+    if (!this.#isCurrent(handlers, socket)) return;
+    handlers.onError(cause);
+    if (!isTerminal || !this.#isCurrent(handlers, socket)) return;
+    this.#detach();
+    handlers.onClose({ clean: false });
+  }
+
+  #isCurrent(handlers, socket) {
+    return (
+      !this.#stopped &&
+      this.#handlers === handlers &&
+      (socket === undefined || this.#socket === socket)
+    );
   }
 
   #detach() {
@@ -114,9 +157,13 @@ export class WebSocketAdapter {
     this.#socket = null;
     if (!socket) return;
 
+    this.#detachSocket(socket);
+  }
+
+  #detachSocket(socket) {
     socket.onopen = null;
     socket.onmessage = null;
-    socket.onerror = null;
+    socket.onerror = ignoreError;
     socket.onclose = null;
   }
 }

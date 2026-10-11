@@ -26,6 +26,147 @@ function setup(options = {}) {
 afterEach(() => vi.unstubAllGlobals());
 
 describe('WebSocket transport', () => {
+  it('does not allocate a socket when URL resolution disposes the adapter', () => {
+    const socket = new TestWebSocket();
+    let constructions = 0;
+    function WebSocket() {
+      constructions += 1;
+      return socket;
+    }
+    let transport;
+    transport = new WebSocketAdapter({
+      url() {
+        transport[Symbol.dispose]();
+        return 'wss://example.com';
+      },
+      WebSocket,
+    });
+
+    transport.start({
+      onOpen() {},
+      onMessage() {},
+      onError() {},
+      onClose() {},
+    });
+
+    expect(constructions).toBe(0);
+    expect(socket.readyState).toBe(0);
+  });
+
+  it('closes a socket returned after constructor reentry disposes the adapter', () => {
+    const socket = new TestWebSocket();
+    const originalClose = socket.close.bind(socket);
+    let closeCalls = 0;
+    socket.close = () => {
+      closeCalls += 1;
+      originalClose();
+    };
+    let transport;
+    function WebSocket() {
+      transport[Symbol.dispose]();
+      return socket;
+    }
+    const events = [];
+    transport = new WebSocketAdapter({ url: 'wss://example.com', WebSocket });
+
+    transport.start({
+      onOpen: () => events.push('open'),
+      onMessage: (message) => events.push(message),
+      onError: (cause) => events.push(cause),
+      onClose: (close) => events.push(close),
+    });
+    socket.open();
+
+    expect(closeCalls).toBe(1);
+    expect(socket.onopen).toBeNull();
+    expect(events).toEqual([]);
+  });
+
+  it('does not allocate a socket when startup logging disposes the adapter', () => {
+    const socket = new TestWebSocket();
+    let constructions = 0;
+    function WebSocket() {
+      constructions += 1;
+      return socket;
+    }
+    let transport;
+    transport = new WebSocketAdapter({
+      url: 'wss://example.com',
+      WebSocket,
+      logger: {
+        debug(message) {
+          if (message === 'WebSocketAdapter starting.')
+            transport[Symbol.dispose]();
+        },
+        error() {},
+      },
+    });
+
+    transport.start({
+      onOpen() {},
+      onMessage() {},
+      onError() {},
+      onClose() {},
+    });
+
+    expect(constructions).toBe(0);
+  });
+
+  it('suppresses open callbacks when open logging disposes the adapter', () => {
+    const socket = new TestWebSocket();
+    const events = [];
+    let transport;
+    transport = new WebSocketAdapter({
+      url: 'wss://example.com',
+      WebSocket: function WebSocket() {
+        return socket;
+      },
+      logger: {
+        debug(message) {
+          if (message === 'WebSocketAdapter opened.')
+            transport[Symbol.dispose]();
+        },
+        error() {},
+      },
+    });
+    transport.start({
+      onOpen: () => events.push('open'),
+      onMessage() {},
+      onError: (cause) => events.push(cause),
+      onClose() {},
+    });
+
+    expect(() => socket.open()).not.toThrow();
+    expect(events).toEqual([]);
+  });
+
+  it('suppresses error callbacks when error logging disposes the adapter', () => {
+    const socket = new TestWebSocket();
+    const events = [];
+    let transport;
+    transport = new WebSocketAdapter({
+      url: 'wss://example.com',
+      WebSocket: function WebSocket() {
+        return socket;
+      },
+      logger: {
+        debug() {},
+        error() {
+          transport[Symbol.dispose]();
+        },
+      },
+    });
+    transport.start({
+      onOpen() {},
+      onMessage() {},
+      onError: (cause) => events.push(cause),
+      onClose() {},
+    });
+
+    expect(() => socket.fail(new Error('closed during logging'))).not.toThrow();
+    expect(events).toEqual([]);
+  });
+
   it('resolves the URL and opens the platform socket only when started', () => {
     const connections = [];
     vi.stubGlobal(
@@ -87,6 +228,75 @@ describe('WebSocket transport', () => {
       ['error', cause],
       ['message', 'still receiving'],
       ['close', { code: 1006, reason: '', clean: false }],
+    ]);
+  });
+
+  it.each([
+    2, 3,
+  ])('synthesizes an unclean close after an error at readyState %s', (readyState) => {
+    const { transport, socket, handlers, events } = setup();
+    const cause = new Error('socket is already closing');
+    transport.start(handlers);
+    socket.open();
+    socket.readyState = readyState;
+
+    socket.fail(cause);
+    expect(events).toEqual([
+      ['open'],
+      ['error', cause],
+      ['close', { clean: false }],
+    ]);
+    socket.finishClose({ code: 1006, wasClean: false });
+    expect(events).toHaveLength(3);
+  });
+
+  it('suppresses a synthetic close when the diagnostic handler disposes', () => {
+    const { transport, socket, handlers, events } = setup();
+    handlers.onError = (cause) => {
+      events.push(['error', cause]);
+      transport[Symbol.dispose]();
+    };
+    transport.start(handlers);
+    socket.open();
+    socket.readyState = 2;
+
+    socket.fail(new Error('closing socket error'));
+    socket.finishClose({ code: 1006, wasClean: false });
+
+    expect(events.map(([type]) => type)).toEqual(['open', 'error']);
+  });
+
+  it('uses the socket state captured before error logging', () => {
+    const socket = new TestWebSocket();
+    const events = [];
+    const transport = new WebSocketAdapter({
+      url: 'wss://example.com',
+      WebSocket: function WebSocket() {
+        return socket;
+      },
+      logger: {
+        debug() {},
+        error() {
+          transport.close();
+        },
+      },
+    });
+    transport.start({
+      onOpen() {},
+      onMessage() {},
+      onError: (cause) => events.push(['error', cause]),
+      onClose: (close) => events.push(['close', close]),
+    });
+    socket.open();
+    const cause = new Error('open socket error');
+
+    socket.fail(cause);
+
+    expect(events).toEqual([['error', cause]]);
+    socket.finishClose({ code: 1000, reason: 'done', wasClean: true });
+    expect(events).toEqual([
+      ['error', cause],
+      ['close', { code: 1000, reason: 'done', clean: true }],
     ]);
   });
 

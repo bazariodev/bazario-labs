@@ -127,6 +127,10 @@ can include the full URL and query string. Logger methods must not throw.
   connecting can report `clean: false` with code `1006`; see the
   [WebSocket close algorithm](https://websockets.spec.whatwg.org/#dom-websocket-close).
 - Unsupported incoming data reports `onError`, then closes the attempt.
+- An error while the WebSocket is `CLOSING` or `CLOSED` reports `onError`, then one unclean
+  `onClose` if this adapter still owns the socket. This ends the attempt without waiting for a
+  native close event. The synthetic close has no code or reason because the platform gave no close
+  event metadata. A later native close event is ignored.
 - Needs `WebSocket`, `TextEncoder`, and `Symbol.dispose`. An injected constructor must create a
   fresh, connecting socket with browser event behavior. Errors from the constructor or the `url`
   function are thrown from `start()`. Importing the package doesn't open connections.
