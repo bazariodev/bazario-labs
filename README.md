@@ -15,8 +15,10 @@ JavaScript building blocks for realtime connections, chat, and telephony, with T
 | [`@bazariodev/fsm-inspect`](./packages/fsm-inspect) | Dev-time inspection helpers for transition timelines, logger capture, source commit recording, and Mermaid diagram export. |
 | [`@bazariodev/transport`](./packages/transport) | Shared transport contract and plain JavaScript WebSocket, streaming HTTP, and WebTransport adapters with bounded writes and disposal. |
 | [`@bazariodev/idle-watchdog`](./packages/idle-watchdog) | Dependency-free, re-armable one-shot inactivity timer with explicit activity reporting, idle subscriptions, and disposal. |
-| [`@bazariodev/keepalive`](./packages/keepalive) | Liveness orchestration over idle watchdogs with abortable promise probes, deadlines, and terminal failure notification. |
-| [`@bazariodev/coordination`](./packages/coordination) | FIFO Queue storage, synchronous and asynchronous task executors, and typed event subscriptions. |
+| [`@bazariodev/keepalive`](./packages/keepalive) | Abortable promise probes with idle and response deadlines. |
+| [`@bazariodev/coordination`](./packages/coordination) | FIFO Queue storage, task executors, typed event subscriptions, and bounded jitter functions. |
+| [`@bazariodev/rpc`](./packages/rpc) | Flat request and notification frames with bounded response correlation and cancellation. |
+| [`@bazariodev/realtime`](./packages/realtime) | Injected client for connection readiness, attempt replacement, and recovery over opaque messages. |
 
 Each package README covers installation and its API. Each package's `CHANGELOG.md` records its
 releases and ships in the npm package. All packages ship ESM and CommonJS with matching `.d.ts` and
@@ -24,7 +26,7 @@ releases and ships in the npm package. All packages ship ESM and CommonJS with m
 
 ## TypeScript setup
 
-FSM Effects, FSM Delays, Transport, Keepalive, and Coordination use platform APIs such as `AbortSignal` but don't
+FSM Effects, FSM Delays, Transport, Keepalive, Realtime, RPC, and Coordination use platform APIs such as `AbortSignal` but don't
 add DOM types to your project. Add the library for your runtime to `compilerOptions.lib`: `"DOM"`
 for browsers or `"WebWorker"` for workers, for example `["ES2022", "DOM"]`. On Node, use Node
 typings that provide `AbortSignal`; Transport also needs declarations for WebTransport and the other
@@ -33,16 +35,22 @@ runtime behavior did not. Upgrade FSM Delays and FSM Effects together.
 
 ## Architecture
 
-`RealtimeClient` and its built-in ping/pong handler are planned; no published package exports them
-yet. Until then, combine Transport and Keepalive directly; the Keepalive README shows the wiring.
+The current realtime design uses opaque messages and an optional `JsonTransport` codec. The root
+factory selects lifecycle and retry defaults; the `/core` entry accepts injected dependencies without
+importing those defaults. Keepalive runs an abortable probe only when configured. RPC uses the
+RealtimeClient directly and sends flat request/result/error frames. The application owns auth,
+online state, wake handling, readiness beyond transport open, and domain synchronization. See the
+[current composition decision](./.agent/ADR/Modules/RealtimeComposition.md).
 
 These guides are HTML pages. GitHub shows their source, so clone the repository and open them in a
 browser:
 
-- [Keepalive and RealtimeClient guide](./docs/keepalive-realtime-guide.html) — ownership diagrams,
-  interactive timing scenarios, failure handling, and proposed integration code.
-- [Proposed R2 realtime client hierarchy](./docs/realtime-client-hierarchy.html) — module dependencies
-  and responsibility boundaries for transport, realtime, RPC, auth, network recovery, and domains.
+- [Keepalive and RealtimeClient guide](./docs/keepalive-realtime-guide.html) — current ownership,
+  timing scenarios, and integration examples.
+- [Realtime client hierarchy](./docs/realtime-client-hierarchy.html) — current responsibility map.
+  Historical decisions remain in the [Realtime ADR](./.agent/ADR/Modules/Realtime.md) and
+  [RPC ADR](./.agent/ADR/Modules/Rpc.md); the [composition ADR](./.agent/ADR/Modules/RealtimeComposition.md)
+  records the current design.
 
 ## Getting started
 

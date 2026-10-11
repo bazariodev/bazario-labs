@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="color-scheme" content="light dark">
-  <meta name="description" content="An illustrated guide to Bazario Keepalive, its two idle watchdogs, and the planned RealtimeClient integration.">
+  <meta name="description" content="The current Bazario RealtimeClient and Keepalive assembly, ownership, and lifecycle rules.">
   <title>Keepalive &amp; RealtimeClient — Bazario Labs</title>
   <style>
     :root {
@@ -219,482 +219,245 @@
       <p class="rail-label">Connection architecture</p>
       <nav aria-label="Guide sections">
         <ol>
-          <li><a href="#ownership"><span>01</span>Who owns what</a></li>
-          <li><a href="#lifecycle"><span>02</span>Connection lifecycle</a></li>
-          <li><a href="#walkthrough"><span>03</span>Follow a connection</a></li>
-          <li><a href="#traffic"><span>04</span>Traffic &amp; failure</a></li>
-          <li><a href="#integration"><span>05</span>Integration code</a></li>
-          <li><a href="#limits"><span>06</span>Timing &amp; guarantees</a></li>
-          <li><a href="#references"><span>07</span>Code &amp; next steps</a></li>
+          <li><a href="#ownership"><span>01</span>Ownership</a></li>
+          <li><a href="#lifecycle"><span>02</span>Lifecycle</a></li>
+          <li><a href="#walkthrough"><span>03</span>Walkthrough</a></li>
+          <li><a href="#integration"><span>04</span>Integration</a></li>
+          <li><a href="#timing"><span>05</span>Timing and limits</a></li>
+          <li><a href="#references"><span>06</span>References</a></li>
         </ol>
       </nav>
-      <p class="rail-note">Source snapshot<br><strong>27 September 2026</strong><br><br>Keepalive is implemented.<br>RealtimeClient integration<br>is a proposed design.</p>
+      <p class="rail-note">Current guide<br><strong>11 October 2026</strong><br><br>Generic lifecycle, transport, probe, and RPC contracts.</p>
     </div>
   </aside>
   <main id="main" tabindex="-1">
     <header>
-      <p class="eyebrow">Architecture guide / R2 connectivity</p>
-      <h1>Keepalive,<br>in context.</h1>
-      <p class="lead">Keepalive chooses when to check. An injected promise defines what proves liveness. RealtimeClient owns recovery.</p>
-      <div class="intro-meta"><span><strong>Implemented:</strong> transport · keepalive · idle-watchdog</span><span><strong>Planned:</strong> realtime · rpc · net-monitor</span></div>
-      <a class="jump" href="#walkthrough">Step through the workflow <span aria-hidden="true">↓</span></a>
+      <p class="eyebrow">Architecture guide / realtime connections</p>
+      <h1>One attempt<br>at a time.</h1>
+      <p class="lead">RealtimeClient owns connection intent and recovery. Keepalive runs an application-supplied probe. The transport carries opaque values.</p>
+      <p>The root package assembles default lifecycle, events, retry, and transport dependencies. The <code>/core</code> entry accepts dependencies and imports no default implementations. JSON encoding is opt-in. Neither package defines a reserved handshake, ready, message, or ping packet. Read the <a href="../.agent/ADR/Modules/RealtimeComposition.md">current composition record</a> and the <a href="../packages/realtime/README.md">Realtime README</a>.</p>
+      <div class="intro-meta"><span><strong>Client states:</strong> idle · connecting · ready · backoff · stopped</span><span><strong>Ownership:</strong> one active attempt</span></div>
+      <a class="jump" href="#walkthrough">Follow one connection <span aria-hidden="true">↓</span></a>
     </header>
 
     <section id="ownership" aria-labelledby="ownership-title">
-      <div class="section-top"><span class="number">01</span><h2 id="ownership-title">One connection owner.<br>Three focused building blocks.</h2></div>
-      <p class="section-intro">RealtimeClient owns the logical connection across attempts. Every ready attempt gets an internal protocol handler. Keepalive is enabled by default with two watchdogs; disabling client probes leaves server-ping replies active.</p>
+      <div class="section-top"><span class="number">01</span><h2 id="ownership-title">Separate decisions<br>from transport work.</h2></div>
+      <p class="section-intro">Each layer has one job. The client retires an attempt before it releases that attempt's resources.</p>
       <figure>
         <div class="architecture">
-          <div class="above"><div><strong>Application / domain modules</strong><span class="small">Application requests and state recovery · optional custom probe(signal): Promise&lt;void&gt;</span></div></div>
-          <div class="connector">↓ connect / send &nbsp; ↑ state / onReady / onMessage</div>
+          <div class="above"><div><strong>Application</strong><span class="small">Authentication · online intent · wake handling · server readiness</span></div></div>
+          <div class="connector">connect / disconnect / send &nbsp; ↑ snapshots / ready / messages</div>
           <div class="owner">
-            <div class="node-head"><strong>RealtimeClient</strong><span class="status planned">Proposed</span></div>
-            <p>Readiness · envelope validation · attempt generation · connection intent · reconnect policy</p>
+            <div class="node-head"><strong>RealtimeClient</strong><span class="status">Lifecycle owner</span></div>
+            <p>One intent · one active connection · retry decisions · stale callback guards</p>
             <div class="branches">
               <div>
-                <div class="branch-label">↓ start / activity / probeNow / stop &nbsp; ↑ onFail</div>
+                <div class="branch-label">One fresh connection per attempt</div>
                 <div class="module">
-                  <div class="node-head"><strong>Keepalive</strong><span class="status">Implemented</span></div>
-                  <p>One pending promise. Fulfillment proves liveness; timeout aborts the operation.</p>
+                  <div class="node-head"><strong>Transport adapter</strong><span class="status">Attempt scope</span></div>
+                  <p><code>start(handlers)</code> · <code>send(value)</code> · <code>[Symbol.dispose]()</code></p>
+                  <p>The adapter reports <code>onOpen</code>, messages, errors, and close. Open means transport readiness only.</p>
+                </div>
+              </div>
+              <div>
+                <div class="branch-label">Optional per-ready-attempt probe</div>
+                <div class="module">
+                  <div class="node-head"><strong>Keepalive</strong><span class="status">Probe owner</span></div>
+                  <p>An abortable <code>probe(signal)</code> proves the response selected by the application.</p>
                   <div class="timers">
-                    <div class="timer"><b>Idle watchdog</b><code>idleMs</code><span>When should we probe?</span></div>
-                    <div class="timer"><b>Response watchdog</b><code>deadlineMs</code><span>How long can we wait?</span></div>
+                    <div class="timer"><strong>Idle duration</strong><span>Starts the next probe</span></div>
+                    <div class="timer"><strong>Fixed deadline</strong><span>Aborts a late probe</span></div>
                   </div>
                 </div>
               </div>
-              <div>
-                <div class="branch-label">↓ start / send / close / dispose &nbsp; ↑ callbacks</div>
-                <div class="module">
-                  <div class="node-head"><strong>Transport</strong><span class="status">Implemented</span></div>
-                  <p>One ordered, physical connection attempt. The application selects its adapter.</p>
-                  <div class="wire">WebSocket · streaming HTTP · WebTransport</div>
-                </div>
-              </div>
             </div>
-            <div class="branch-label">Always present on each ready attempt, including keepalive: false</div>
-            <div class="module">
-              <div class="node-head"><strong>Internal protocol handler</strong><span class="status planned">Proposed</span></div>
-              <p>Consumes ping/pong controls before application delivery. Always answers server pings. Supplies the default probe, matches its pong, and cleans up on abort.</p>
-            </div>
-            <div class="connector">Keepalive → probe(signal) → internal handler → guarded control write → Transport</div>
           </div>
-          <div class="server">↕ transport-specific wire<br><strong>Server</strong> · connect / ready · ping / pong controls · application message envelopes</div>
+          <figcaption>Each attempt owns one transport. A ready attempt may own one monitor. A retired attempt cannot affect its replacement.</figcaption>
         </div>
-        <figcaption>Containment shows runtime ownership. The idle watchdog's onIdle starts a probe; the response watchdog's onIdle ends it with a timeout. Keepalive receives a promise factory and passes an AbortSignal. The handler stays private to realtime; a custom probe replaces only the client check. Connection recovery stays in the parent. Keepalive’s only runtime package dependency is idle-watchdog.</figcaption>
       </figure>
-      <div class="seams">
-        <div><strong>Auth-session → credentials</strong><p>Supplies fresh auth for each connect handshake. It does not replace the transport.</p></div>
-        <div><strong>Net-monitor → recovery intent</strong><p>Requests an immediate probe after wake, or a reconnect when the network generation changes.</p></div>
-        <div><strong>FSM + delays → lifecycle</strong><p>Drive the planned client's four states, handshake timeout, and reconnect delay. Keepalive uses its own watchdogs.</p></div>
-      </div>
-      <div class="table-wrap" tabindex="0" role="region" aria-label="Responsibility comparison">
-        <table>
-          <caption>Where each decision belongs</caption>
-          <thead><tr><th scope="col">Owner</th><th scope="col">Responsible for</th><th scope="col">Boundary</th></tr></thead>
-          <tbody>
-            <tr><th scope="row">IdleWatchdog</th><td><code>arm()</code>, <code>cancel()</code>, one-shot expiry, stale timer protection</td><td>No packets, ping policy, or automatic re-arming</td></tr>
-            <tr><th scope="row">Keepalive</th><td>Idle scheduling, promise deadline, abort, one terminal failure</td><td>No packet handling, sockets, retries, or reconnects</td></tr>
-            <tr><th scope="row">RealtimeClient</th><td>Handshake, inbound activity, guarded writes, attempt retirement, recovery</td><td>No application outbox or delivery acknowledgement</td></tr>
-            <tr><th scope="row">Internal protocol handler</th><td>Default probe, ping/pong matching, abort cleanup, server-ping replies</td><td>One ready attempt; always consumes controls, even with disabled/custom client probing</td></tr>
-            <tr><th scope="row">RPC / domains</th><td>Application request correlation, safe retries, durable IDs, state recovery</td><td>Use the client's public seam; do not own its current transport</td></tr>
-          </tbody>
-        </table>
-      </div>
     </section>
 
     <section id="lifecycle" aria-labelledby="lifecycle-title">
-      <div class="section-top"><span class="number">02</span><h2 id="lifecycle-title">Open first. Ready after handshake.</h2></div>
-      <p class="section-intro">These are the proposed RealtimeClient states. Transport opening alone does not enable application sends or start keepalive.</p>
-      <div class="state-flow" aria-label="Client connects from idle to connecting, then becomes ready only after a ready packet">
-        <div class="state"><b>idle</b><small>No connection intent</small></div>
-        <div class="arrow">connect()<span aria-hidden="true">→</span></div>
-        <div class="state"><b>connecting</b><small>Transport + JSON handshake</small></div>
-        <div class="arrow">ready packet<span aria-hidden="true">→</span></div>
-        <div class="state ready"><b>ready</b><small>Application sends + keepalive</small></div>
+      <div class="section-top"><span class="number">02</span><h2 id="lifecycle-title">The client has five states.</h2></div>
+      <p class="section-intro">Only <code>ready</code> admits local sends or <code>probeNow()</code>. Retry is asynchronous, even at zero delay. Stop is terminal.</p>
+      <div class="state-flow" role="img" aria-label="Idle connects to connecting, then ready or backoff; stopped is terminal">
+        <div class="state"><b>idle</b><small>connect</small></div><div class="arrow"><span>→</span></div>
+        <div class="state"><b>connecting</b><small>bounded open wait</small></div><div class="arrow"><span>→</span></div>
+        <div class="state"><b>ready</b><small>send / probe</small></div>
+        <div class="state"><b>backoff</b><small>retry, if configured</small></div><div class="arrow"><span>→</span></div>
+        <div class="state"><b>stopped</b><small>terminal</small></div>
       </div>
-      <div class="return-path"><strong>Retryable failure → backoff → connecting.</strong> RealtimeClient disposes the old attempt and creates a fresh transport. A new protocol handler and, unless disabled, Keepalive are created only after the next valid ready packet.</div>
-      <div class="split">
-        <div>
-          <h3>Entering ready</h3>
-          <ol class="steps">
-            <li><strong>Transport opens</strong><span>Client writes <code>{type: 'connect', protocol: 1, auth}</code>. Auth is resolved for this attempt.</span></li>
-            <li><strong>Server accepts the protocol</strong><span>A valid <code>{type: 'ready', protocol: 1, connectionId}</code> completes the handshake.</span></li>
-            <li><strong>Attach attempt services</strong><span>Create the internal protocol handler before notifying ready listeners. Unless <code>keepalive: false</code>, bind its default probe or a custom one, create Keepalive, subscribe, and start. Reset the retry counter.</span></li>
-          </ol>
-        </div>
-        <div>
-          <h3>Leaving an attempt</h3>
-          <ol class="steps">
-            <li><strong>Invalidate its generation</strong><span>Old callbacks lose permission to act on the current connection.</span></li>
-            <li><strong>Stop keepalive before the transport</strong><span>Abort the pending probe and dispose both watchdogs, dispose the protocol handler, then close and dispose the old transport.</span></li>
-            <li><strong>Apply the client's connection intent</strong><span>Retryable failure enters backoff. Manual disconnect clears intent and returns to idle.</span></li>
-          </ol>
-        </div>
+      <div class="seams">
+        <article><h3>Recoverable failure</h3><p>The client retires the attempt, aborts its monitor, and disposes its transport. A current retry may create a new attempt. Without retry, the client returns to idle.</p></article>
+        <article><h3>Newest effective command wins</h3><p>Reconnect, disconnect, or stop during cleanup replaces the older operation. An inert connect does not supersede it. Late events from the old attempt are ignored.</p></article>
+        <article><h3>Stable snapshots</h3><p>Subscribers receive a snapshot for each committed state. Treat snapshot and context values as read-only. A nested command suppresses obsolete remaining delivery.</p></article>
       </div>
-      <p class="callout"><strong>Two lifetimes, two state machines.</strong> RealtimeClient survives many attempts. Keepalive goes from inactive → monitoring idle ⇄ awaiting promise → terminal. It never restarts after failure or <code>stop()</code>.</p>
     </section>
 
     <section id="walkthrough" aria-labelledby="walkthrough-title">
-      <div class="section-top"><span class="number">03</span><h2 id="walkthrough-title">Follow a connection.</h2></div>
-      <p class="section-intro">Choose a scenario and move through its events. The bars show the remaining time in the two watchdog windows. This is an illustrated sequence, not a running network client.</p>
-      <noscript><p>Enable JavaScript for the step-through illustration. The diagrams, wiring examples, and explanations below work without it.</p></noscript>
-      <div class="js-only">
-        <div class="demo">
-          <div class="demo-top">
-            <div><label for="scenario">Scenario</label><select id="scenario">
-              <option value="healthy">01 — Quiet connection, probe fulfills</option>
-              <option value="activity">02 — Only incoming traffic postpones probing</option>
-              <option value="timeout">03 — Pending promise → timeout → reconnect</option>
-              <option value="wake">04 — Wake triggers an immediate probe</option>
-              <option value="peer">05 — Server ping during our own probe</option>
-              <option value="rejected">06 — The probe promise rejects</option>
-              <option value="disconnect">07 — Disconnect aborts pending work</option>
-              <option value="disabled">08 — Client probes off; server pings answered</option>
-              <option value="outbound">09 — Outgoing writes cannot hide a dead peer</option>
-            </select></div>
-            <div class="demo-time"><span id="demo-time">0.0 s</span><small>Since first ready entry</small></div>
-          </div>
-          <p class="demo-settings">Example: idleMs = 30,000 · deadlineMs = 5,000</p>
-          <div class="readout">
-            <div><span>RealtimeClient</span><b id="client-state">ready</b></div>
-            <div><span>Keepalive</span><b id="keepalive-state">monitoring idle</b></div>
-            <div><span>Pending probe</span><b id="pending-probe">none</b></div>
-          </div>
-          <div class="bar-row"><div class="bar-label">Idle window<span id="idle-value" class="bar-value">30.0 s left</span></div><div class="bar-track" aria-hidden="true"><div id="idle-fill" class="bar-fill"></div></div></div>
-          <div class="bar-row"><div class="bar-label">Response window<span id="response-value" class="bar-value">not armed</span></div><div class="bar-track" aria-hidden="true"><div id="response-fill" class="bar-fill"></div></div></div>
-          <p class="demo-caption">At stable states, at most one watchdog is armed. Event times assume timely callbacks.</p>
-          <div class="story"><h3 id="event-title">The ready handshake completes.</h3><p id="event-description"></p></div>
-          <div class="demo-controls">
-            <button id="previous" type="button">← Previous</button><button id="next" type="button" class="primary">Next event →</button><button id="play" type="button" aria-pressed="false">Play</button><button id="restart" type="button">Restart</button><span class="demo-count" id="step-count"></span>
-          </div>
-          <p class="sr-only" role="status" aria-live="polite" aria-atomic="true" id="announcement"></p>
+      <div class="section-top"><span class="number">03</span><h2 id="walkthrough-title">Follow one connection.</h2></div>
+      <p class="section-intro">This small model shows ownership and timing. It does not open a network connection.</p>
+      <div class="demo">
+        <div class="demo-top">
+          <div><p class="eyebrow">Local model</p><h3>Choose a result</h3></div>
+          <label for="scenario">Scenario</label>
+          <select id="scenario">
+            <option value="healthy">Probe completes</option>
+            <option value="timeout">Probe reaches its deadline</option>
+            <option value="omitted">Monitor is omitted</option>
+            <option value="replace">Reconnect replaces an attempt</option>
+          </select>
         </div>
-        <ol class="event-list" id="events" aria-label="Scenario events"></ol>
+        <div class="readout" aria-live="polite">
+          <div><span>Client state</span><strong id="state-value">ready</strong></div>
+          <div><span>Owned resources</span><strong id="resource-value">1 connection + 1 monitor</strong></div>
+          <div><span>Probe / recovery</span><strong id="result-value">Matched response</strong></div>
+        </div>
+        <div class="bar-row"><span>Idle wait</span><div class="bar-track"><div class="bar-fill" id="idle-bar"></div></div><span id="idle-label">30 s</span></div>
+        <div class="bar-row"><span>Probe deadline</span><div class="bar-track"><div class="bar-fill deadline" id="deadline-bar"></div></div><span id="deadline-label">5 s</span></div>
+        <ol class="event-list" id="event-list" aria-label="Scenario events"></ol>
+        <div class="demo-controls">
+          <button id="play" type="button" class="primary">Play scenario</button>
+          <button id="reset" type="button">Reset</button>
+        </div>
       </div>
-      <p class="small" style="margin-top: 1rem">The values above are examples. Keepalive requires both durations. The proposed RealtimeClient defaults are 30 seconds idle and 30 seconds for a probe; the package itself sets neither default. The proposed client enables the built-in probe by default. A custom probe is optional. Only <code>keepalive: false</code> disables client probes; server-ping replies remain active.</p>
-    </section>
-
-    <section id="traffic" aria-labelledby="traffic-title">
-      <div class="section-top"><span class="number">04</span><h2 id="traffic-title">Packets and failures take different paths.</h2></div>
-      <div class="split">
-        <div><h3>Incoming: transport → client → protocol handler</h3><ol class="steps">
-          <li><strong>Guard and validate the envelope</strong><span>Ignore an old generation. Size-check, decode JSON, validate the envelope and its legality in the current state.</span></li>
-          <li><strong>Report inbound activity</strong><span>In ready, validated incoming packets call <code>activity()</code>. Outgoing writes never do.</span></li>
-          <li><strong>Consume controls first</strong><span>The internal handler consumes every ping/pong and answers server pings, even with disabled or custom client probing. Only <code>message.data</code> reaches application listeners.</span></li>
-          <li><strong>Fulfill after validation</strong><span>A validated response fulfills the probe promise. Keepalive cancels its deadline and resumes idle monitoring through the promise reaction.</span></li>
-        </ol></div>
-        <div><h3>Outgoing: probe → handler → guarded writer → transport</h3><ol class="steps">
-          <li><strong>Arm before invoking</strong><span>Keepalive stores a fresh pending operation, suspends idle monitoring, arms the deadline, and calls <code>probe(signal)</code>.</span></li>
-          <li><strong>Register, then send</strong><span>The handler sets up matching and abort cleanup before sending on the current connection. It uses this signal instead of a second deadline.</span></li>
-          <li><strong>Reject failed admission</strong><span>The internal control writer is bound to this ready attempt and throws if it cannot send. The handler rejects the probe promise. Custom probes must likewise reject failed admission.</span></li>
-          <li><strong>Wait for the correct proof</strong><span>A local write or a response over another connection cannot fulfill this check. No retry or replay across attempts.</span></li>
-        </ol></div>
+      <div class="story" id="story" aria-live="polite">
+        <p class="eyebrow">What to watch</p>
+        <p id="story-text">A matched application response completes the probe. Keepalive schedules the next idle check.</p>
       </div>
-      <div class="table-wrap" tabindex="0" role="region" aria-label="Failure routing">
-        <table><caption>Failure routing in the proposed client</caption><thead><tr><th scope="col">Event</th><th scope="col">Keepalive</th><th scope="col">RealtimeClient</th></tr></thead><tbody>
-          <tr><th scope="row">Probe deadline expires</th><td>Abort; terminal <code>{type: 'timeout'}</code></td><td>Retire the current attempt; backoff while intent remains true</td></tr>
-          <tr><th scope="row">Request/validation rejects</th><td>Abort; terminal <code>{type: 'error', error}</code></td><td>Same guarded retirement path; handler does not also reconnect</td></tr>
-          <tr><th scope="row">Probe callback throws</th><td>Terminal <code>{type: 'error', error}</code></td><td>Report the cause, then recover through the same owner</td></tr>
-          <tr><th scope="row">Server-pong reply write fails</th><td>Stopped if present</td><td>Retire once through the client, even with disabled or custom probing</td></tr>
-          <tr><th scope="row">Transport onError / onClose</th><td>Stopped when the client retires the attempt</td><td><code>onError</code> is diagnostic; terminal <code>onClose</code> drives recovery</td></tr>
-          <tr><th scope="row">Malformed protocol / non-retryable connect_error</th><td>Pending work aborted; monitor disposed if present</td><td>Retire, clear retry intent, return to idle, report the error</td></tr>
-        </tbody></table>
-      </div>
-      <p class="callout"><strong>One failure, one recovery decision.</strong> Keepalive is already terminal before <code>onFail</code> runs. Even if a failure subscriber awaits, no new probe is scheduled. A later close callback from the retired transport must not schedule a second reconnect.</p>
     </section>
 
     <section id="integration" aria-labelledby="integration-title">
-      <div class="section-top"><span class="number">05</span><h2 id="integration-title">The parent wiring.</h2></div>
-      <p class="section-intro">Illustrative integration code for the future RealtimeClient. These snippets use the implemented Keepalive API; the request handler, client helpers, handshake, and FSM transitions are illustrative and not implemented here.</p>
-      <details open><summary>1. On ready: create, subscribe, start</summary>
-        <p>The internal handler is always created for this ready attempt. Omitted options use its probe; <code>false</code> skips only Keepalive. The future client validates durations and custom-probe callability at construction, using the <a href="../.agent/ADR/Modules/Realtime.md#validation-and-testing">validation approach in its ADR</a>. A custom probe must await and validate its response, honor abort, and avoid its own deadline or retries. RealtimeClient does not import RPC.</p>
-        <pre tabindex="0" aria-label="Keepalive construction example"><code>// Private helper names are illustrative; realtime is not implemented yet.
-function isCurrentReady(attempt) {
-  return currentAttempt === attempt &amp;&amp; state === 'ready';
-}
-
-function attachReadyServices(attempt, options = {}) {
-  const handler = new RealtimeProtocolHandler({
-    send: (packet) =&gt; writeControl(attempt, packet),
-  });
-  attempt.protocolHandler = handler;
-  if (options === false) return; // Server pings still receive replies.
-
-  const {
-    idleMs = 30_000,
-    deadlineMs = 30_000,
-    probe = (signal) =&gt; handler.probe(signal),
-  } = options;
-  const keepalive = new Keepalive({
-    idleMs,
-    deadlineMs,
-    logger, // Forward the client's configured diagnostics.
-    probe(signal) {
-      if (!isCurrentReady(attempt)) throw new Error('Attempt retired');
-      return probe(signal);
-    },
-  });
-  attempt.keepalive = keepalive;
-  keepalive.onFail((failure) =&gt; {
-    if (!isCurrentReady(attempt)) return;
-    retireAttempt(attempt, { kind: 'keepalive', cause: failure });
-  });
-  keepalive.start();
-}</code></pre>
-      </details>
-      <details><summary>2. In ready: report inbound activity and route payloads</summary>
-        <p><code>encodeAndCheckSize</code> performs JSON encoding and the configured byte limit. <code>receiveValidated</code> runs after packet and state validation. The internal handler returns true for every ping/pong, including unmatched pongs. It has no timers or reconnect policy. A peer-reply write failure reaches the client directly; a local probe write failure rejects its promise. Listener helpers isolate subscriber exceptions.</p>
-        <pre tabindex="0" aria-label="Inbound and outbound integration example"><code>function receiveValidated(attempt, packet) {
-  if (!isCurrentReady(attempt)) return;
-  attempt.keepalive?.activity();
-  try {
-    if (attempt.protocolHandler.receive(packet)) return;
-  } catch (error) {
-    retireAttempt(attempt, { kind: 'send', cause: error });
-    return;
-  }
-  if (!isCurrentReady(attempt)) return;
-  if (packet.type === 'message') emitMessage(packet.data);
-}
-
-function writeControl(attempt, packet) {
-  if (!isCurrentReady(attempt)) throw new Error('Attempt retired');
-  attempt.transport.send(encodeAndCheckSize(packet));
-  // Outgoing admission is not evidence of peer liveness.
-}
-
-function sendApplication(attempt, data) {
-  if (!isCurrentReady(attempt)) return false;
-  try {
-    attempt.transport.send(
-      encodeAndCheckSize({ type: 'message', data }),
-    );
-  } catch (error) {
-    reportSendError(error);
-    return false;
-  }
-  return true; // The write was admitted, even if the attempt retired during send.
-}
-
-function probeNow() {
-  if (state === 'ready') currentAttempt?.keepalive?.probeNow();
-}</code></pre>
-      </details>
-      <details><summary>3. On retirement: invalidate, stop, dispose, decide</summary>
-        <p>The same generation check must guard every transport callback. Manual disconnect clears <code>wantsConnection</code> before retirement; a non-retryable protocol failure does too. This example shows ordering, not the full disposal/error-notification implementation.</p>
-        <pre tabindex="0" aria-label="Attempt retirement example"><code>function retireAttempt(attempt, error) {
-  if (currentAttempt !== attempt) return; // Already retired.
-  generation += 1;
-  currentAttempt = null; // Invalidate before any cleanup callbacks.
-
-  attempt.keepalive?.stop(); // Aborts the local probe, if present.
-  attempt.protocolHandler?.stop(); // Ends this attempt's handler lifetime.
-  attempt.transport.close();
-  attempt.transport[Symbol.dispose]();
-
-  if (error) reportError(error);
-  if (wantsConnection) enterBackoff();
-  else enterIdle();
-}
-
-// Backoff expiry creates a NEW transport and begins a NEW handshake.
-// Its valid ready packet creates a NEW handler and optional keepalive.</code></pre>
-      </details>
-      <p class="small">For the complete API and lifecycle rules, see the <a href="../.agent/ADR/Modules/Keepalive.md">canonical Keepalive contract</a> and <a href="../packages/keepalive/README.md">package usage example</a>.</p>
+      <div class="section-top"><span class="number">04</span><h2 id="integration-title">Select a wire format.</h2></div>
+      <p class="section-intro">A raw adapter passes values unchanged. Wrap it in <code>JsonTransport</code> only when the peer uses JSON text frames.</p>
+      <div class="split">
+        <article>
+          <h3>JSON transport, explicit</h3>
+          <pre><code>const client = createRealtimeClient({
+  createTransport: () =&gt; new JsonTransport(
+    new WebSocketAdapter({ url }),
+  ),
+});
+client.onReady(({ reason }) =&gt; {
+  // Open transport, not server authentication.
+});
+client.connect();</code></pre>
+          <p>The helper serializes once, parses once, and skips malformed or non-text input. It does not validate an application schema.</p>
+        </article>
+        <article>
+          <h3>Correlated probe through RPC</h3>
+          <pre><code>let rpc;
+const client = createRealtimeClient({
+  createTransport,
+  keepalive: {
+    idleMs: 30_000,
+    deadlineMs: 5_000,
+    probe: (signal) =&gt;
+      rpc.probe({ method: 'ping' }, { signal }),
+  },
+});
+rpc = new RpcClient({ channel: client });
+client.connect();</code></pre>
+          <p>Create RPC before connecting. A matched server error proves a round trip, not authentication or application success. The probe controls correlation.</p>
+        </article>
+      </div>
+      <p class="section-intro">The injected core requires application-supplied <code>fsm</code>, <code>events</code>, and <code>createTransport</code>. <code>retry</code> and <code>createKeepalive</code> are optional. A selected monitor factory gets an attempt-bound send and message port.</p>
     </section>
 
-    <section id="limits" aria-labelledby="limits-title">
-      <div class="section-top"><span class="number">06</span><h2 id="limits-title">What the timing actually guarantees.</h2></div>
+    <section id="timing" aria-labelledby="timing-title">
+      <div class="section-top"><span class="number">05</span><h2 id="timing-title">Three waits, three owners.</h2></div>
       <div class="limits">
-        <div><div class="limit-big">idleMs + deadlineMs</div><h3>A quiet, unanswered connection</h3><p>Expected detection time from the last validated incoming packet, plus scheduling delay. With the illustration's 30 s + 5 s, failure occurs around 35 s. An immediate probe skips the idle wait.</p></div>
-        <div><div class="limit-big">1 … 2,147,483,647 ms</div><h3>Allowed duration range</h3><p>Both values must be integer milliseconds. Each watchdog validates its duration. Invalid values throw RangeError; no clamping or rounding. These are technical bounds, not recommended production settings.</p></div>
-        <div><h3>Outgoing writes cannot hide a dead peer</h3><p>Only validated incoming packets refresh idleness. A client sending presence or telemetry without receiving anything still probes after the idle window. Local buffering never counts as proof of peer reachability.</p></div>
-        <div><h3>Background time is approximate</h3><p>Event-loop work, background throttling, and sleep can delay callbacks. Net-monitor should request a ready-state probe after wake; a confirmed network change may request immediate replacement instead.</p></div>
-        <div><h3>A response window is independent</h3><p>While a promise is pending, activity cannot extend its deadline. Only fulfillment resumes idle monitoring. The consumer decides which response is valid.</p></div>
-        <div><h3>Reconnection does not restore messages</h3><p>Realtime has no application replay queue. A successful send means local admission. RPC may own acknowledgements and safe retries; domain modules must resynchronize missed state after onReady.</p></div>
+        <article><h3>Connect deadline</h3><p>Bounds the wait for the transport's open callback. It does not prove server readiness.</p></article>
+        <article><h3>Probe deadline</h3><p>Bounds one monitor probe. Keepalive aborts its signal at the deadline and ignores stale completion.</p></article>
+        <article><h3>RPC response deadline</h3><p>Bounds one request. RPC owns response matching and does not replay requests after recovery.</p></article>
       </div>
-      <p class="callout"><strong>The detailed rules have one home.</strong> See the <a href="../.agent/ADR/Modules/Keepalive.md#validation-failures-and-subscriptions">Keepalive contract</a> for scheduler obligations, callback errors, and complete failure delivery, and its <a href="../.agent/ADR/Modules/Keepalive.md#cancellation-and-deadline-ownership">cancellation rules</a> for probe cleanup. Handshake timeout and reconnect backoff belong to <a href="../.agent/ADR/Modules/Realtime.md">RealtimeClient</a>.</p>
+      <p class="section-intro">Incoming messages reach the client once. A monitor may observe activity, but unrelated messages do not satisfy a correlated probe. The application owns login, online intent, wake policy, and server synchronization.</p>
+      <p>Server-specific replies belong to the application's transport or probe integration, whether a monitor is selected or not. Set <code>retry: null</code> to return to idle after a connection failure and reconnect manually.</p>
     </section>
 
     <section id="references" aria-labelledby="references-title">
-      <div class="section-top"><span class="number">07</span><h2 id="references-title">From these primitives to a client.</h2></div>
-      <p class="section-intro">Transport, IdleWatchdog, and Keepalive exist in the workspace. RealtimeClient is still an ADR: its next implementation must prove the handshake, ready-only startup, generation guards, one recovery decision, and cleanup ordering shown here.</p>
-      <ul class="sources">
-        <li><a href="../packages/keepalive/src/keepalive.js">Keepalive implementation ↗</a><span>Current orchestration and terminal failure path</span></li>
-        <li><a href="../packages/keepalive/src/index.d.ts">Keepalive public types ↗</a><span>Methods, abortable probe, failure values</span></li>
-        <li><a href="../packages/idle-watchdog/src/idle-watchdog.js">IdleWatchdog implementation ↗</a><span>Timer mechanics, bounds, disposal</span></li>
-        <li><a href="../packages/transport/src/index.d.ts">Transport contract ↗</a><span>One-attempt start/send/close/dispose interface</span></li>
-        <li><a href="../.agent/ADR/Modules/Realtime.md">Proposed RealtimeClient ADR ↗</a><span>Wire protocol, defaults, client API, recovery policy</span></li>
-        <li><a href="../.agent/ADR/Modules/Keepalive.md">Keepalive design contract ↗</a><span>Ownership, invariants, re-entrancy and cleanup</span></li>
-        <li><a href="realtime-client-hierarchy.html">Broader module hierarchy ↗</a><span>RPC, auth, network recovery, and domains</span></li>
-        <li><a href="../.agent/ROADMAP.md">R2 roadmap ↗</a><span>Connectivity milestone and remaining modules</span></li>
-      </ul>
+      <div class="section-top"><span class="number">06</span><h2 id="references-title">Read the contracts.</h2></div>
+      <div class="sources">
+        <a href="../.agent/ADR/Modules/RealtimeComposition.md"><strong>Current composition record</strong><span>Realtime, Keepalive, RPC, and Ringotel fit</span></a>
+        <a href="../packages/realtime/README.md"><strong>Realtime package</strong><span>Root factory, injected core, and transport</span></a>
+        <a href="../packages/keepalive/README.md"><strong>Keepalive package</strong><span>Abortable generic probe and activity</span></a>
+        <a href="../packages/rpc/README.md"><strong>RPC package</strong><span>Flat request and response frames</span></a>
+        <a href="../.agent/ADR/Modules/Realtime.md"><strong>Historical Realtime record</strong><span>Retained with a current-record notice</span></a>
+      </div>
     </section>
-    <footer>Bazario Labs · Local architecture guide · Snapshot: 27 September 2026.<br>The document is self-contained and works offline. Source links assume the repository directory structure.</footer>
+    <footer><span>BAZARIO LABS / MODULE ARCHITECTURE</span><span>Current as of 11 October 2026</span></footer>
   </main>
 </div>
 <script>
-  (() => {
-    'use strict';
-    const idleSeconds = 30;
-    const deadlineSeconds = 5;
-    const ready = (t, title, detail, idle = 30) => ({ t, title, detail, client: 'ready', monitor: 'monitoring idle', pending: 'none', idle, response: null });
-    const pending = (t, title, detail, response = 5, id = 'probe 1') => ({ t, title, detail, client: 'ready', monitor: 'awaiting promise', pending: id, idle: null, response });
-    const terminal = (t, title, detail, client = 'backoff', monitor = 'terminal / disposed') => ({ t, title, detail, client, monitor, pending: 'none', idle: null, response: null });
-    const firstReady = ready(0, 'The ready handshake completes.', 'RealtimeClient creates an internal protocol handler and enables Keepalive by default. It subscribes to onFail and calls start(). Only the idle watchdog is armed.');
-    const firstProbe = pending(30, 'Quiet for 30 seconds: invoke the probe.', 'Keepalive records a fresh operation, suspends idle monitoring, arms the 5-second deadline, and invokes probe(signal). The handler creates and sends its request.');
-    const unmonitored = (t, title, detail) => ({ t, title, detail, client: 'ready', monitor: 'disabled', pending: 'none', idle: null, response: null });
-    const scenarios = {
-      healthy: [firstReady,
-        ready(20, 'Twenty seconds of silence.', 'No probe has run. The idle window has 10 seconds remaining.', 10),
-        firstProbe,
-        ready(32, 'The handler validates a response and fulfills.', 'The handler matches its own response. When Keepalive observes fulfillment, it cancels the deadline and arms a fresh idle window, due at t = 62 s.'),
-        pending(62, 'The next quiet period ends.', 'Keepalive invokes the factory again with a fresh signal and promise. The handler starts a new request. Successful checks resume idle monitoring; there is no fixed interval.', 5, 'probe 2')],
-      activity: [firstReady,
-        ready(20, 'A validated message envelope arrives.', 'The parent reports activity(). The old idle deadline at t = 30 s is replaced by t = 50 s. Payload validation remains with the consumer.'),
-        ready(40, 'An application write is accepted.', 'Local admission does not report activity. The last incoming packet was at t = 20 s, so the idle deadline stays at t = 50 s.', 10),
-        ready(45, 'Another valid envelope arrives.', 'This incoming packet refreshes idleness. The next idle deadline is t = 75 s. No local probe is pending.'),
-        ready(74, 'Incoming traffic has been quiet for 29 seconds.', 'There is still no probe; one second remains before the idle watchdog expires.', 1),
-        pending(75, 'Finally idle: begin the probe deadline.', 'Keepalive invokes the first probe. Further activity cannot move the deadline at t = 80 s.')],
-      timeout: [firstReady, firstProbe,
-        pending(32, 'Application traffic arrives during the probe.', 'It is valid activity, but the promise is pending. activity() leaves the deadline unchanged at t = 35 s.', 3),
-        pending(33, 'A response with the wrong ID arrives.', 'The internal handler consumes the unmatched pong without application delivery. The probe stays pending; Keepalive has no knowledge of the packet or its ID.', 2),
-        terminal(35, 'Deadline: abort, then notify.', 'Keepalive invalidates the operation, stops both watchdogs, and aborts the signal. The handler removes its pending request. onFail({type: timeout}) retires the attempt and enters backoff.'),
-        terminal(35.1, 'The aborted promise rejects late.', 'Keepalive already invalidated the operation. This rejection is handled and ignored. A later transport close is also guarded so it cannot schedule a second reconnect.'),
-        terminal(35.4, 'The illustrated backoff delay expires.', 'The client creates a fresh transport and begins a new connect/ready handshake. There is no active Keepalive while connecting. The 0.4-second delay is an example.', 'connecting', 'not created'),
-        ready(36, 'A new ready packet establishes the next attempt.', 'The retry counter resets. A new Keepalive starts its idle window. New requests target the new connection; the old monitor stays terminal.')],
-      wake: [firstReady,
-        pending(10, 'Wake signal: probe immediately.', 'Net-monitor asks RealtimeClient.probeNow(). While ready, the client delegates to Keepalive. The remaining idle wait is skipped; the deadline is t = 15 s.'),
-        pending(11, 'A second wake check requests another probe.', 'probeNow() coalesces with the pending operation. It does not invoke the factory again or extend the deadline.', 4),
-        ready(12, 'The current probe fulfills.', 'The handler has confirmed liveness of this connection. A fresh 30-second idle window now ends at t = 42 s.')],
-      peer: [firstReady,
-        ready(15, 'The server sends a ping control packet.', 'The internal handler consumes it and replies with a pong carrying the same ID. No control reaches application listeners. The incoming ping moves the idle deadline to t = 45 s; the outgoing pong does not.'),
-        pending(45, 'Now our own idle window expires.', 'Keepalive invokes probe(signal). The handler begins a separate request; its deadline is t = 50 s.'),
-        pending(47, 'The server sends another ping.', 'The handler replies independently. Keepalive only sees activity(), which cannot fulfill its promise or extend the deadline at t = 50 s.', 3),
-        ready(48, 'Our probe response is validated.', 'The handler fulfills the local promise. Keepalive observes it and resumes idle monitoring, now due at t = 78 s.')],
-      rejected: [firstReady,
-        terminal(30, 'The probe request rejects.', 'The handler rejects after failed send admission or response validation. Keepalive observes the rejection, disposes both watchdogs, aborts, and emits {type: error, error}; the parent retires the attempt.'),
-        terminal(30.4, 'Only the client schedules another attempt.', 'There is no Keepalive retry loop. The illustrated client backoff expires and a new transport begins its handshake.', 'connecting', 'not created'),
-        ready(31, 'The new attempt becomes ready.', 'A fresh Keepalive is created. A synchronous throw from the probe follows the same terminal error path and preserves the original cause.')],
-      disconnect: [firstReady,
-        pending(10, 'An explicit probe is pending.', 'A manual probe started the deadline. Its promise must fulfill before the deadline callback at t = 15 s.'),
-        terminal(11, 'The user disconnects.', 'RealtimeClient clears intent and invalidates the attempt. Keepalive stops its timers and aborts the pending request before transport closes. Explicit stop emits no failure.', 'idle'),
-        terminal(15, 'A late result or queued deadline arrives.', 'Pending identity and timer guards make both inert. A late rejection is handled. Connection intent is false, so no reconnect is scheduled.', 'idle'),
-        terminal(30, 'The user connects again.', 'disconnect() is restartable at the client level. It creates a new transport and handshake. The old Keepalive remains terminal.', 'connecting', 'not created')],
-      disabled: [
-        unmonitored(0, 'Ready with keepalive: false.', 'RealtimeClient creates the internal protocol handler. There is no Keepalive instance, idle timer, or local probe deadline.'),
-        unmonitored(15, 'A server ping still gets its pong.', 'The handler consumes the ping and answers with the same ID through this attempt’s guarded writer. It never reaches application listeners.'),
-        unmonitored(20, 'An unmatched pong is consumed.', 'All ping/pong controls stay inside realtime. With no local probe pending, this valid pong has no promise to settle.'),
-        unmonitored(30, 'probeNow() is inert.', 'Disabling client checks affects both idle and explicit probes. Server-ping replies remain active. A custom probe would also leave those replies unchanged.'),
-        terminal(40, 'The user disconnects.', 'The client invalidates the attempt, disposes its protocol handler, and closes the transport. No keepalive cleanup is needed.', 'idle', 'disabled')],
-      outbound: [firstReady,
-        ready(10, 'A presence write is accepted locally.', 'The peer is unreachable. Transport buffering accepts the write, but no incoming packet arrives and activity() is not called. The idle deadline stays at t = 30 s.', 20),
-        ready(20, 'Another outgoing update is accepted.', 'Periodic writes still cannot move the idle deadline. Ten seconds remain before the first liveness check.', 10),
-        firstProbe,
-        pending(32, 'More outgoing data, still no response.', 'The local probe is pending. Neither outgoing writes nor unrelated incoming packets can extend its deadline at t = 35 s.', 3),
-        terminal(35, 'The dead peer is detected.', 'Keepalive times out and the client retires the attempt. Continuous outbound traffic did not hide the failed connection.')],
-    };
-    const element = (id) => document.getElementById(id);
-    const select = element('scenario');
-    const previous = element('previous');
-    const next = element('next');
-    const play = element('play');
-    const events = element('events');
-    let step = 0;
-    let interval = null;
-    const currentEvents = () => scenarios[select.value];
-    const formatTime = (value) => `${value.toFixed(1)} s`;
-    function stopPlayback() {
-      clearInterval(interval);
-      interval = null;
-      play.textContent = 'Play';
-      play.setAttribute('aria-pressed', 'false');
-    }
-    function render(announce = true) {
-      const list = currentEvents();
-      const event = list[step];
-      element('demo-time').textContent = formatTime(event.t);
-      element('client-state').textContent = event.client;
-      element('keepalive-state').textContent = event.monitor;
-      element('pending-probe').textContent = event.pending;
-      element('event-title').textContent = event.title;
-      element('event-description').textContent = event.detail;
-      element('idle-fill').style.width = `${event.idle === null ? 0 : event.idle / idleSeconds * 100}%`;
-      element('response-fill').style.width = `${event.response === null ? 0 : event.response / deadlineSeconds * 100}%`;
-      element('idle-value').textContent = event.idle === null ? 'not armed' : `${formatTime(event.idle)} left`;
-      element('response-value').textContent = event.response === null ? 'not armed' : `${formatTime(event.response)} left`;
-      element('step-count').textContent = `${step + 1} / ${list.length}`;
-      previous.disabled = step === 0;
-      next.disabled = step === list.length - 1;
-      events.querySelectorAll('button').forEach((button, index) => {
-        if (index === step) button.setAttribute('aria-current', 'step');
-        else button.removeAttribute('aria-current');
-      });
-      if (announce) element('announcement').textContent = `Event ${step + 1} of ${list.length}. ${formatTime(event.t)}. ${event.title} ${event.detail}`;
-      if (step === list.length - 1) stopPlayback();
-    }
-    function populateEvents() {
-      events.replaceChildren();
-      currentEvents().forEach((event, index) => {
-        const item = document.createElement('li');
-        const button = document.createElement('button');
-        button.type = 'button';
-        const time = document.createElement('time');
-        time.dateTime = `PT${event.t}S`;
-        time.textContent = formatTime(event.t);
-        const title = document.createElement('span');
-        title.textContent = event.title;
-        const arrow = document.createElement('span');
-        arrow.textContent = '↗';
-        arrow.setAttribute('aria-hidden', 'true');
-        button.append(time, title, arrow);
-        button.addEventListener('click', () => { stopPlayback(); step = index; render(); });
-        item.append(button);
-        events.append(item);
-      });
-    }
-    select.addEventListener('change', () => { stopPlayback(); step = 0; populateEvents(); render(); });
-    previous.addEventListener('click', () => { stopPlayback(); step = Math.max(0, step - 1); render(); });
-    next.addEventListener('click', () => { stopPlayback(); step = Math.min(currentEvents().length - 1, step + 1); render(); });
-    element('restart').addEventListener('click', () => { stopPlayback(); step = 0; render(); });
-    play.addEventListener('click', () => {
-      if (interval !== null) { stopPlayback(); return; }
-      if (step === currentEvents().length - 1) { step = 0; render(); }
-      play.textContent = 'Pause';
-      play.setAttribute('aria-pressed', 'true');
-      interval = setInterval(() => { step += 1; render(); }, 3500);
-    });
-    document.addEventListener('visibilitychange', () => { if (document.hidden) stopPlayback(); });
-    window.addEventListener('pagehide', stopPlayback);
-    const links = [...document.querySelectorAll('nav a')];
-    const sections = [...document.querySelectorAll('main > section')];
-    function updateNavigation() {
-      const selected = sections.findLast((section) => section.getBoundingClientRect().top <= 160) ?? sections[0];
-      for (const link of links) {
-        if (link.hash === `#${selected.id}`) link.setAttribute('aria-current', 'location');
-        else link.removeAttribute('aria-current');
-      }
-    }
-    let scrollScheduled = false;
-    window.addEventListener('scroll', () => {
-      if (scrollScheduled) return;
-      scrollScheduled = true;
-      requestAnimationFrame(() => { updateNavigation(); scrollScheduled = false; });
-    }, { passive: true });
-    const openBeforePrint = new Set();
-    window.addEventListener('beforeprint', () => {
-      stopPlayback();
-      document.querySelectorAll('details').forEach((details) => { if (details.open) openBeforePrint.add(details); details.open = true; });
-    });
-    window.addEventListener('afterprint', () => {
-      document.querySelectorAll('details').forEach((details) => { details.open = openBeforePrint.has(details); });
-      openBeforePrint.clear();
-    });
-    populateEvents();
-    render(false);
-    updateNavigation();
-    document.documentElement.classList.add('js');
-  })();
+const scenarios = {
+  healthy: {
+    state: 'ready', resources: '1 connection + 1 monitor', result: 'Matched response',
+    events: ['connect()', 'transport onOpen', 'state: ready', 'idle duration elapses', 'probe(signal)', 'matched RPC response', 'next idle duration starts'],
+    story: 'A matched application response completes the probe. Keepalive schedules the next idle check.',
+  },
+  timeout: {
+    state: 'backoff', resources: 'old attempt retired', result: 'Probe aborted at deadline',
+    events: ['state: ready', 'probe(signal)', 'fixed deadline expires', 'abort signal', 'monitor onFail', 'transport disposed', 'retry scheduled asynchronously'],
+    story: 'The monitor owns the probe deadline. The client retires that attempt before retry can create a replacement.',
+  },
+  omitted: {
+    state: 'ready', resources: '1 connection; monitor omitted', result: 'No probe runs',
+    events: ['connect()', 'transport onOpen', 'state: ready', 'createKeepalive: null', 'no probe runs'],
+    story: 'No monitor means no probe runs. Server-specific reply behavior belongs to the application transport or probe integration, regardless of monitor selection.',
+  },
+  replace: {
+    state: 'connecting', resources: 'replacement connection starting', result: 'old attempt disposed',
+    events: ['state: ready', 'reconnect()', 'old monitor stopped', 'old transport disposed', 'new transport created', 'late old callback ignored'],
+    story: 'Reconnect retires the old attempt first. A late callback cannot change the replacement or publish a stale message.',
+  },
+};
+
+const scenarioSelect = document.querySelector('#scenario');
+const eventList = document.querySelector('#event-list');
+const idleBar = document.querySelector('#idle-bar');
+const deadlineBar = document.querySelector('#deadline-bar');
+let timer;
+
+function renderScenario(name) {
+  const scenario = scenarios[name];
+  document.querySelector('#state-value').textContent = scenario.state;
+  document.querySelector('#resource-value').textContent = scenario.resources;
+  document.querySelector('#result-value').textContent = scenario.result;
+  document.querySelector('#story-text').textContent = scenario.story;
+  eventList.replaceChildren(...scenario.events.map((event) => {
+    const item = document.createElement('li');
+    item.textContent = event;
+    return item;
+  }));
+  idleBar.style.width = name === 'omitted' ? '0%' : '76%';
+  deadlineBar.style.width = ['healthy', 'timeout'].includes(name) ? '34%' : '0%';
+  document.querySelector('#idle-label').textContent = name === 'omitted' ? 'not scheduled' : '30 s';
+  document.querySelector('#deadline-label').textContent = ['healthy', 'timeout'].includes(name) ? '5 s' : 'not scheduled';
+}
+
+document.querySelector('#play').addEventListener('click', () => {
+  clearTimeout(timer);
+  const items = [...eventList.children];
+  for (const item of items) item.classList.remove('active');
+  let index = 0;
+  const advance = () => {
+    for (const item of items) item.classList.remove('active');
+    if (index >= items.length) return;
+    items[index].classList.add('active');
+    index += 1;
+    timer = setTimeout(advance, 550);
+  };
+  advance();
+});
+document.querySelector('#reset').addEventListener('click', () => {
+  clearTimeout(timer);
+  renderScenario(scenarioSelect.value);
+});
+scenarioSelect.addEventListener('change', () => {
+  clearTimeout(timer);
+  renderScenario(scenarioSelect.value);
+});
+renderScenario(scenarioSelect.value);
 </script>
 </body>
 </html>

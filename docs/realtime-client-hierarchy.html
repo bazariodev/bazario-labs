@@ -380,312 +380,90 @@
     </style>
   </head>
   <body>
-    <header>
-      <p class="eyebrow">Bazario Labs · R2 architecture</p>
-      <h1>Realtime client hierarchy</h1>
-      <p class="lead">
-        A small transport abstraction sits below <code>RealtimeClient</code>. Each layer owns one kind
-        of decision, so platform mechanics, connection lifecycle, RPC, and domain delivery do not
-        overlap.
-      </p>
-      <nav aria-label="Architecture references">
-        <ul>
-          <li><a href="keepalive-realtime-guide.html">Interactive keepalive guide</a></li>
-          <li><a href="../.agent/ADR/Modules/Transport.md">Transport ADR</a></li>
-          <li><a href="../.agent/ADR/Modules/IdleWatchdog.md">Idle Watchdog ADR</a></li>
-          <li><a href="../.agent/ADR/Modules/Keepalive.md">Keepalive ADR</a></li>
-          <li><a href="../.agent/ADR/Modules/Coordination.md">Coordination ADR</a></li>
-          <li><a href="../.agent/ADR/Modules/Realtime.md">Realtime ADR</a></li>
-          <li><a href="../.agent/ROADMAP.md">Roadmap</a></li>
-        </ul>
-      </nav>
-    </header>
-
-    <main>
-      <p class="principle">
-        <strong>Ownership rule:</strong> transport owns one physical attempt; watchdog owns timer
-        mechanics; keepalive owns inactivity and promise-probe monitoring; realtime owns inbound-activity
-        classification, transport effects, and the logical connection across attempts; higher layers
-        own delivery semantics.
-      </p>
-
-      <section aria-labelledby="hierarchy-title">
-        <h2 id="hierarchy-title">Module and runtime hierarchy</h2>
-        <div class="architecture-layout">
-          <figure>
-            <ol class="stack" aria-label="Primary realtime message path">
-              <li class="node">
-                <strong>Product and domain packages</strong>
-                <span>chat · presence · call signaling · application orchestration</span>
-              </li>
-              <li class="edge">typed operations</li>
-              <li class="node">
-                <strong><code>@bazariodev/rpc</code></strong>
-                <span>correlation · acknowledgements · timeouts · explicitly safe retries</span>
-              </li>
-              <li class="edge">
-                <span><code>send</code> · <code>onMessage</code> · <code>onReady</code></span>
-              </li>
-              <li class="node node-realtime">
-                <strong><code>@bazariodev/realtime</code> · <code>RealtimeClient</code></strong>
-                <span>connection intent · JSON protocol · readiness · liveness wiring · reconnect</span>
-              </li>
-              <li class="edge"><code>TransportFactory</code></li>
-              <li class="node node-transport">
-                <strong><code>@bazariodev/transport</code></strong>
-                <span>shared one-attempt contract and platform adapters in one package</span>
-              </li>
-              <li class="edge">implemented by the selected adapter</li>
-              <li class="node">
-                <strong><code>WebSocketAdapter</code></strong>
-                <span>in @bazariodev/transport · browser events · local write admission</span>
-              </li>
-              <li class="edge">wraps</li>
-              <li class="node">
-                <strong>Browser <code>WebSocket</code></strong>
-                <span>platform connection and browser-owned outbound buffer</span>
-              </li>
-              <li class="edge">text frames</li>
-              <li class="node">
-                <strong>Realtime server</strong>
-                <span>connect / ready · ping / pong controls · application envelopes</span>
-              </li>
-            </ol>
-            <figcaption>
-              Runtime data flows down this path. The contract and adapters share one package;
-              realtime consumes only the injected interface.
-            </figcaption>
-          </figure>
-
-          <aside aria-labelledby="support-title">
-            <h2 id="support-title">Supporting seams</h2>
-            <dl class="supporting-seams">
-              <div>
-                <dt>Application composition root</dt>
-                <dd>Chooses a transport adapter. Client probing uses the internal protocol handler by default; an optional custom probe replaces that check only.</dd>
-              </div>
-              <div>
-                <dt><code>@bazariodev/auth-session</code></dt>
-                <dd>Supplies fresh credentials for each realtime connect packet.</dd>
-              </div>
-              <div>
-                <dt><code>@bazariodev/net-monitor</code></dt>
-                <dd>
-                  Detects online, visibility, and wake changes; requests <code>probeNow()</code> or
-                  <code>reconnect()</code>.
-                </dd>
-              </div>
-              <div>
-                <dt><code>@bazariodev/fsm</code> + <code>fsm-effects</code> + <code>fsm-delays</code></dt>
-                <dd>Implement RealtimeClient state transitions and deterministic timers. FSM and fsm-effects supply fsm-delays' required runtime peers.</dd>
-              </div>
-              <div>
-                <dt><code>@bazariodev/coordination</code> · <code>Emitter</code></dt>
-                <dd>
-                  Provides the planned client's private ready/message/error subscriptions. Realtime
-                  owns emission and disposal; subscribers use its public methods. No queue or
-                  executor is needed for this integration.
-                </dd>
-              </div>
-              <div>
-                <dt><code>@bazariodev/keepalive</code></dt>
-                <dd>
-                  Owns attempt-local liveness: idle monitoring, an abortable promise probe, a
-                  deadline, and one terminal failure notification.
-                </dd>
-              </div>
-              <div>
-                <dt><code>keepalive</code> → <code>@bazariodev/idle-watchdog</code></dt>
-                <dd>
-                  Two internal watchdogs provide idle and response windows. Keepalive owns arming
-                  and disposal; the timer primitive remains reusable independently.
-                </dd>
-              </div>
-              <div>
-                <dt><code>fsm-react</code> / <code>fsm-inspect</code></dt>
-                <dd>Observe the realtime snapshot; they do not control transport resources.</dd>
-              </div>
-            </dl>
-          </aside>
-        </div>
-      </section>
-
-      <section aria-labelledby="ownership-title">
-        <h2 id="ownership-title">Concern ownership</h2>
-        <p class="section-intro">
-          Every concern has one policy owner. Lower layers report facts; higher layers decide meaning.
-        </p>
-        <section
-          class="table-wrap"
-          aria-label="Concern ownership table"
-          tabindex="0"
-        >
-          <table>
-            <thead>
-              <tr>
-                <th scope="col">Concern</th>
-                <th scope="col">Owner</th>
-                <th scope="col">Boundary</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr>
-                <td>One connection attempt</td>
-                <td>Concrete transport adapter</td>
-                <td>Maps platform open/message/error/close and releases platform resources.</td>
-              </tr>
-              <tr>
-                <td>Transport contract</td>
-                <td><code>@bazariodev/transport</code></td>
-                <td>Defines ordered messages and local send admission; contains no policy runtime.</td>
-              </tr>
-              <tr>
-                <td>Logical connection lifecycle</td>
-                <td><code>RealtimeClient</code></td>
-                <td>Owns intent, attempts, connect timeout, backoff, replacement, and readiness.</td>
-              </tr>
-              <tr>
-                <td>Idle timer mechanics</td>
-                <td><code>IdleWatchdog</code></td>
-                <td>Arms or re-arms on command and emits one idle event without resource policy.</td>
-              </tr>
-              <tr>
-                <td>Connection liveness monitoring</td>
-                <td><code>Keepalive</code></td>
-                <td>
-                  Arms internal idle and deadline watchdogs, invokes an injected promise probe,
-                  aborts pending work, and terminally reports failure once.
-                </td>
-              </tr>
-              <tr>
-                <td>Incoming traffic and connection recovery</td>
-                <td><code>RealtimeClient</code></td>
-                <td>Reports validated incoming activity, binds the built-in or custom probe to the attempt, and owns recovery.</td>
-              </tr>
-              <tr>
-                <td>Realtime wire protocol</td>
-                <td><code>RealtimeClient</code></td>
-                <td>Validates protocol packets. Its internal handler always consumes ping/pong and answers server pings while ready, even with client probing disabled or custom.</td>
-              </tr>
-              <tr>
-                <td>Credentials and refresh</td>
-                <td><code>auth-session</code></td>
-                <td>Realtime requests fresh credentials but never stores or refreshes them.</td>
-              </tr>
-              <tr>
-                <td>Network and wake detection</td>
-                <td><code>net-monitor</code></td>
-                <td>Reports environmental change and calls the public reconnect seam.</td>
-              </tr>
-              <tr>
-                <td>Request/response delivery</td>
-                <td><code>rpc</code></td>
-                <td>Owns correlation, acknowledgement, timeout, and retry eligibility.</td>
-              </tr>
-              <tr>
-                <td>Durable delivery and recovery</td>
-                <td>Domain package</td>
-                <td>Owns outbox, idempotency, deduplication, cursors, and state resynchronization.</td>
-              </tr>
-            </tbody>
-          </table>
-        </section>
-      </section>
-
-      <section aria-labelledby="dependency-title">
-        <h2 id="dependency-title">Dependency rules</h2>
-        <ul class="rules">
-          <li>
-            <strong>Transport stays policy-free</strong>
-            <span>No FSM, reconnect, heartbeat, auth, network monitor, or cross-attempt queue.</span>
-          </li>
-          <li>
-            <strong>Realtime stays adapter-free</strong>
-            <span>Transport is a type-only peer dependency, also present for local development; the application imports and constructs the concrete adapter.</span>
-          </li>
-          <li>
-            <strong>Realtime composes five direct runtime dependencies</strong>
-            <span>FSM, fsm-effects, fsm-delays, keepalive, and coordination's Emitter. FSM and fsm-effects supply delays' required peers. Idle-watchdog is transitive through keepalive; event emission stays private to the client.</span>
-          </li>
-          <li>
-            <strong>Keepalive owns its watchdogs</strong>
-            <span>Realtime supplies guarded writes and inbound activity; only realtime closes or replaces a transport.</span>
-          </li>
-          <li>
-            <strong>RPC stays lifecycle-free</strong>
-            <span>It consumes readiness and messages without opening or replacing transports.</span>
-          </li>
-          <li>
-            <strong>Domains own replay meaning</strong>
-            <span>No lower layer blindly replays application messages after reconnect.</span>
-          </li>
-        </ul>
-      </section>
-
-      <section aria-labelledby="contract-title">
-        <h2 id="contract-title">The intentionally small transport seam</h2>
-        <p class="section-intro">
-          A transport is constructed for one attempt, started once, and discarded when that attempt
-          ends. Sending returns normally on local acceptance and throws on rejection; successful
-          return is not a delivery acknowledgement.
-        </p>
-        <pre tabindex="0"><code>interface Transport {
-  start(handlers: TransportHandlers): void;
-  send(message: string | Uint8Array): void;
-  close(): void;
+  <header>
+    <p class="eyebrow">Bazario Labs · R2 architecture</p>
+    <h1>Realtime client hierarchy</h1>
+    <p class="lead">One client owns connection intent and attempt replacement. Messages stay opaque. Applications choose the transport and any codec.</p>
+    <p>The root <code>createRealtimeClient(options)</code> selects the default FSM, event publisher, and retry driver. <code>new RealtimeClient(deps)</code> accepts injected dependencies. The <code>@bazariodev/realtime/core</code> entry has no imports from the default implementation packages. See the <a href="../.agent/ADR/Modules/RealtimeComposition.md">current composition decision</a>.</p>
+    <nav aria-label="Architecture references"><ul>
+      <li><a href="keepalive-realtime-guide.html">Keepalive and Realtime guide</a></li>
+      <li><a href="../.agent/ADR/Modules/RealtimeComposition.md">Current composition ADR</a></li>
+      <li><a href="../.agent/ADR/Modules/Transport.md">Transport ADR</a></li>
+      <li><a href="../.agent/ROADMAP.md">Roadmap</a></li>
+    </ul></nav>
+  </header>
+  <main>
+    <p class="principle"><strong>Ownership rule:</strong> a transport adapter owns one physical attempt. RealtimeClient owns readiness and recovery. Keepalive owns one abortable probe when configured. RPC owns request matching. The application owns auth, online state, wake handling, and domain recovery.</p>
+    <section aria-labelledby="hierarchy-title">
+      <h2 id="hierarchy-title">Module and runtime hierarchy</h2>
+      <p class="section-intro">The lifecycle, event publisher, and retry driver live for one client. Each attempt gets one connection. A monitor exists only when selected.</p>
+      <div class="architecture-layout"><figure><ol class="stack" aria-label="Realtime message path">
+        <li class="node"><strong>Application and domain modules</strong><span>Authentication · online and wake state · synchronization · delivery policy</span></li>
+        <li class="edge">requests and notifications</li>
+        <li class="node"><strong><code>@bazariodev/rpc</code></strong><span>Flat request, result, error, and notification frames · IDs · bounded waits</span></li>
+        <li class="edge"><code>send</code> · <code>onMessage</code> · snapshot <code>subscribe</code></li>
+        <li class="node node-realtime"><strong><code>@bazariodev/realtime</code> · <code>RealtimeClient</code></strong><span>Connection intent · ready gate · attempt replacement · retry</span></li>
+        <li class="edge">one connection per attempt · optional monitor per ready attempt</li>
+        <li class="node"><strong>Selected transport adapter</strong><span>WebSocket · streaming HTTP · WebTransport · application adapter</span></li>
+        <li class="edge">opaque text or binary messages</li>
+        <li class="node node-transport"><strong>Remote endpoint</strong><span>Application-selected wire format and server behavior</span></li>
+      </ol><figcaption>The application installs its transport adapter. <code>JsonTransport</code> is an optional text codec; it does not define a protocol.</figcaption></figure>
+      <aside aria-labelledby="support-title"><h2 id="support-title">Supporting seams</h2><dl class="supporting-seams">
+        <div><dt><code>@bazariodev/realtime/core</code></dt><dd>Exports the injected client and local contracts without default implementation imports.</dd></div>
+        <div><dt><code>JsonTransport</code></dt><dd>Serializes outgoing values and parses incoming text once. It does not validate application fields.</dd></div>
+        <div><dt><code>@bazariodev/keepalive</code></dt><dd>Runs an abortable probe with idle and fixed response windows. The application defines the request and matching rule.</dd></div>
+        <div><dt><code>@bazariodev/idle-watchdog</code></dt><dd>Provides the two one-shot timers used by Keepalive.</dd></div>
+        <div><dt><code>@bazariodev/coordination</code> and <code>@bazariodev/fsm</code></dt><dd>Provide the root factory's default event publisher and lifecycle.</dd></div>
+        <div><dt>Application composition</dt><dd>Owns credentials, online and visibility state, wake response, server readiness, and synchronization.</dd></div>
+      </dl></aside></div>
+    </section>
+    <section aria-labelledby="assembly-title"><h2 id="assembly-title">Default assembly and omission rules</h2>
+      <ul class="rules">
+        <li><strong><code>createRealtimeClient({ createTransport })</code></strong><span>Uses the root FSM, event publisher, and retry driver. It creates no Keepalive unless a probe or monitor factory is supplied.</span></li>
+        <li><strong><code>createKeepalive: null</code></strong><span>Omits monitoring and its probe. Server-specific reply behavior belongs to the application transport or probe integration, with or without a monitor.</span></li>
+        <li><strong><code>retry: null</code></strong><span>A failed attempt returns to <code>idle</code>. The application may call <code>connect()</code> again.</span></li>
+        <li><strong>Message admission</strong><span>Only <code>ready</code> accepts a send. A true result means local admission, not delivery.</span></li>
+      </ul>
+      <p class="section-intro">Factories run without a receiver. A connection factory must wait for <code>start()</code> before calling handlers; <code>start()</code> may call them synchronously. Retry callbacks are asynchronous and stale callbacks are ignored.</p>
+    </section>
+    <section aria-labelledby="ownership-title"><h2 id="ownership-title">Concern ownership</h2>
+      <div class="table-wrap" tabindex="0" role="region" aria-label="Concern ownership table"><table><thead><tr><th>Concern</th><th>Owner</th><th>Boundary</th></tr></thead><tbody>
+        <tr><td>One physical connection</td><td>Transport adapter</td><td>Maps platform events and releases one connection.</td></tr>
+        <tr><td>Logical lifecycle</td><td>RealtimeClient</td><td>Owns intent, state, connect deadline, retries, and replacement.</td></tr>
+        <tr><td>Liveness</td><td>Keepalive</td><td>Owns idle timing, one abortable probe, deadline, and one failure.</td></tr>
+        <tr><td>Wire format</td><td>Application or selected adapter</td><td>Realtime defines no packet types, IDs, or handshake.</td></tr>
+        <tr><td>Request correlation</td><td>RPC</td><td>Owns fresh IDs, response matching, deadlines, and cancellation.</td></tr>
+        <tr><td>Recovery meaning</td><td>Application and domain</td><td>Owns authentication, replay safety, and state synchronization.</td></tr>
+      </tbody></table></div>
+    </section>
+    <section aria-labelledby="dependency-title"><h2 id="dependency-title">Dependency rules</h2><ul class="rules">
+      <li><strong>Transport stays policy-free</strong><span>No FSM, retry, liveness, auth, or cross-attempt queue.</span></li>
+      <li><strong>Adapters stay application-selected</strong><span>Realtime does not declare transport as a peer dependency. Install the adapter you use.</span></li>
+      <li><strong>The root and core have different imports</strong><span>The root factory imports coordination, FSM, and optional Keepalive. The core entry does not import these default implementations.</span></li>
+      <li><strong>RPC stays lifecycle-free</strong><span>It subscribes to the client; it does not open or replace transports.</span></li>
+      <li><strong>Messages are not replayed</strong><span>The application decides what work is safe to repeat and when to resynchronize.</span></li>
+    </ul></section>
+    <section aria-labelledby="removed-title"><h2 id="removed-title">Why the earlier layers were removed</h2><div class="decision-grid">
+      <article class="decision"><h3>No packet channel</h3><p>A parser and packet classifier made one backend envelope part of the logical client. Use opaque messages and select a codec only when needed.</p></article>
+      <article class="decision"><h3>No retry lifecycle bridge</h3><p>The retry driver schedules and cancels. RealtimeClient alone sends lifecycle events and checks attempt identity.</p></article>
+      <article class="decision"><h3>No built-in ping or pong</h3><p>Keepalive accepts a correlated abortable probe. Server-specific reply behavior belongs to the application transport or probe integration.</p></article>
+      <article class="decision"><h3>Safety remains in the owners</h3><p>Attempt identity, newest-command checks, terminal stop, ready-only sends, and full cleanup protect reentrant and late callbacks.</p></article>
+    </div></section>
+    <section aria-labelledby="ringotel-title"><h2 id="ringotel-title">Mapping to a Ringotel application</h2><div class="table-wrap" tabindex="0" role="region" aria-label="Application operation mapping"><table><thead><tr><th>Application operation</th><th>Composition action</th></tr></thead><tbody>
+      <tr><td>Desired auth or online state</td><td>Application connects when credentials and network state are ready.</td></tr>
+      <tr><td>Reset or replacement</td><td>Call recoverable <code>disconnect()</code> or explicit <code>reconnect()</code>.</td></tr>
+      <tr><td>Dispose</td><td>Call terminal <code>stop()</code>.</td></tr>
+      <tr><td>State and ready events</td><td>Subscribe to snapshots and <code>onReady</code>; synchronize missed domain state.</td></tr>
+      <tr><td>JSON frames and probe</td><td>Select <code>JsonTransport</code> and supply a correlated probe policy.</td></tr>
+    </tbody></table></div><p class="callout"><strong>This is a composition map, not drop-in compatibility.</strong> Auth, wake cadence, endpoint framing, and unanswered-probe policy need application-level integration and tests.</p></section>
+    <section aria-labelledby="contract-title"><h2 id="contract-title">Transport seam</h2><p class="section-intro">Each transport is started once for one attempt. It sends and receives its declared message type. Disposal ends that attempt. A successful send means local admission only.</p><pre tabindex="0"><code>interface Transport&lt;Message&gt; {
+  start(handlers: TransportHandlers&lt;Message&gt;): void;
+  send(message: Message): void;
   [Symbol.dispose](): void;
 }
 
-type TransportFactory = () =&gt; Transport;</code></pre>
-      </section>
-
-      <section aria-labelledby="decision-title">
-        <h2 id="decision-title">What changed from the earlier draft</h2>
-        <div class="decision-grid">
-          <article class="decision">
-            <h3>Kept: transport abstraction</h3>
-            <p>
-              RealtimeClient uses a reusable one-attempt port. One <code>transport</code> package
-              contains the contract, <code>WebSocketAdapter</code>, <code>HttpAdapter</code>,
-              and <code>WebTransportAdapter</code>.
-            </p>
-          </article>
-          <article class="decision">
-            <h3>Removed: <code>ManagedConnection</code></h3>
-            <p>
-              Transport no longer owns reconnect, heartbeat, offline policy, an FSM, or a cross-attempt queue.
-              Those concerns either belong to RealtimeClient or to a higher delivery layer.
-            </p>
-          </article>
-          <article class="decision">
-            <h3>Kept: one lifecycle owner</h3>
-            <p>
-              RealtimeClient alone replaces stale attempts, applies backoff, gates readiness, and
-              turns liveness events into generation-guarded transport actions.
-            </p>
-          </article>
-          <article class="decision">
-            <h3>Implemented: liveness orchestration</h3>
-            <p>
-              Keepalive composes two IdleWatchdogs, awaits one promise probe at a time, and supports
-              immediate probes. Activity never extends a pending probe deadline. Failure stops all
-              monitoring and aborts pending work before notifying the parent; recovery remains with the client.
-            </p>
-          </article>
-          <article class="decision">
-            <h3>Implemented: stream adapters</h3>
-            <p>
-              HTTP uses streaming GET and sequential POSTs; WebTransport uses one reliable bidirectional
-              stream. Both preserve text and binary messages with length-prefixed frames. Polling and
-              live upgrades remain out of scope.
-            </p>
-          </article>
-        </div>
-      </section>
-    </main>
-
-    <footer>
-      <p>Proposed R2 architecture · revised 2026-09-29</p>
-    </footer>
-  </body>
+type TransportFactory&lt;Message&gt; = () =&gt; Transport&lt;Message&gt;;</code></pre></section>
+    <footer><p>Realtime architecture · revised 2026-10-11</p></footer>
+  </main>
+</body>
 </html>

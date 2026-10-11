@@ -2,7 +2,7 @@
 
 - Status: Draft for review
 - Date: 2026-07-04
-- Revised: 2026-09-29
+- Revised: 2026-10-11
 
 ## Vision
 
@@ -23,20 +23,23 @@ Shipped (current versions and release notes live in each package's `package.json
 - `@bazariodev/fsm-inspect` — transition timelines, source recording, and Mermaid diagrams (`ADR/Modules/Inspect.md`)
 - `@bazariodev/transport` — one-attempt WebSocket, HTTP, and WebTransport adapters (`ADR/Modules/Transport.md`)
 - `@bazariodev/idle-watchdog` — one-shot inactivity timer with explicit arming (`ADR/Modules/IdleWatchdog.md`)
-- `@bazariodev/keepalive` — idle scheduling, abortable promise probes, and deadlines (`ADR/Modules/Keepalive.md`)
+- `@bazariodev/keepalive` — published `0.1.1` has the probe-only API. The current implementation
+  preserves that contract and adds duration functions for idle jitter. The next release is minor
+  (`ADR/Modules/RealtimeComposition.md`).
+- `@bazariodev/coordination` — FIFO storage, serial executors, and typed event subscriptions; `1.0.0` verified on npm on 2026-10-10 (`ADR/Modules/Coordination.md`). The additive jitter export awaits `1.1.0`.
 
 Review notes:
 
 - The layering thesis is proven: core → effects → delays each composed over the previous package's public seams without core changes. Domain modules below follow the same rule (ports and adapters, composition over subclassing).
 - Remaining deferred items named by ADRs: retry/backoff policy DSL (Delays ADR), parallel regions and history (Hierarchy ADR). Hierarchy composition and persistence are shipped.
-- React bindings and the connectivity primitives are shipped. Coordination's implementation and
-  example are complete, with its `1.0.0` package release prepared. RealtimeClient remains at ADR
-  stage; signaling, media, chat, and presence are still planned.
+- React bindings, connectivity primitives, and coordination `1.0.0` are shipped. Coordination's
+  example is complete; its new jitter helper awaits release. RealtimeClient is implemented
+  in the workspace and awaits a package release; signaling, media, chat, and presence are planned.
 
-## Next tasks — coordination release and remaining R2 work
+## Next tasks — remaining R2 work
 
 [Coordination](ADR/Modules/Coordination.md) is implemented first within the existing R2 connectivity
-milestone. Its initial package release is pending. This changes task priority, not the R1–R5
+milestone. Its initial `1.0.0` release is published. This changes task priority, not the R1–R5
 milestone identifiers or shipped history.
 
 1. [x] Scaffold `@bazariodev/coordination` at `0.0.0` and implement `Emitter<Events>` first, with
@@ -51,12 +54,14 @@ milestone identifiers or shipped history.
    `pnpm health`. Document handled stop in the package README and prepare the first release notes.
 6. [x] Prepare `1.0.0` as the first public release; confirm the
    ESM/CommonJS package contents with a dry-run pack.
-7. [ ] Publish `@bazariodev/coordination@1.0.0` with `pnpm release`.
-8. [ ] Implement `realtime` using a private Emitter for ready/message/error subscriptions.
-   Continue with `rpc`, `auth-session`, `net-monitor`, and the integration demo; extract `fsm-retry`
-   after the realtime backoff proves its contract.
+7. [x] Publish `@bazariodev/coordination@1.0.0`; exact version verified in the npm registry on 2026-10-10.
+8. [x] Implement `realtime` using one injected client and opaque messages.
+9. [ ] Review and release `realtime@0.1.0`, `rpc@0.1.0`, `keepalive@0.2.0`,
+   `coordination@1.1.0`, and `idle-watchdog@0.2.0`. Then continue with `auth-session`,
+   `net-monitor`, and the integration demo; extract `fsm-retry` after the realtime
+   backoff proves its contract.
 
-Queue and the executors are planned standalone SDK primitives with example consumers; no existing
+Queue and the executors are shipped SDK primitives with example consumers; no existing
 package migration is assumed. Review compatibility separately before adopting them in shipped code.
 
 ## Module map
@@ -78,15 +83,17 @@ Status legend: `shipped` / `implemented, release pending` / `adr` (written, not 
 
 ### Layer 1 — Connectivity and session
 
-Responsibility and dependency guide: [`docs/realtime-client-hierarchy.html`](../docs/realtime-client-hierarchy.html).
+Current ownership: [Realtime composition ADR](ADR/Modules/RealtimeComposition.md). Earlier
+[Realtime](ADR/Modules/Realtime.md), [Keepalive](ADR/Modules/Keepalive.md), and
+[RPC](ADR/Modules/Rpc.md) records preserve historical decisions.
 
 | Package | Purpose | Status | Release |
 | --- | --- | --- | --- |
 | `transport` | shared one-attempt contract with WebSocket, streaming HTTP (GET + POST), and reliable-stream WebTransport adapters | shipped | R2 |
 | `idle-watchdog` | re-armable one-shot inactivity timer; consumers own arming and idle-event policy | shipped | R2 |
-| `keepalive` | liveness orchestration over idle watchdogs; owns inactivity, abortable promise probes, and deadlines; consumers own request handling and recovery | shipped | R2 |
-| `realtime` | logical `RealtimeClient` over `transport`: JSON handshake, readiness, internal ping/pong handling, default keepalive, and reconnect backoff across attempts | adr | R2 |
-| `rpc` | request/response correlation, timeouts, and typed methods over `RealtimeClient` messages | planned | R2 |
+| `keepalive` | abortable promise probe with idle and fixed response deadlines; optional duration function for idle jitter | shipped; minor release pending | R2 |
+| `realtime` | injected logical client over opaque messages; optional JSON codec, readiness, attempt replacement, and recovery | implemented, release pending | R2 |
+| `rpc` | flat request/result/error frames; private IDs, bounded waits, cancellation, notifications, and correlated probes | implemented, release pending | R2 |
 | `auth-session` | token lifecycle machine (login, refresh, expiry, logout) with storage port | planned | R2 |
 | `net-monitor` | online/offline, tab visibility, sleep/wake detection | planned | R2 |
 | `scheduler-worker` | Worker-backed `Scheduler` for `fsm-delays` that survives background-tab timer throttling | backlog | post-MVP improvement |
@@ -131,7 +138,7 @@ other shipped packages; each owner adopts only what its contract needs.
 
 | Package | Purpose | Status | Release |
 | --- | --- | --- | --- |
-| `coordination` | FIFO Queue, separate SyncExecutor and AsyncExecutor, and typed Emitter; [ADR](ADR/Modules/Coordination.md) | implemented, release pending | R2 first |
+| `coordination` | FIFO Queue, separate SyncExecutor and AsyncExecutor, and typed Emitter; additive jitter pending; [ADR](ADR/Modules/Coordination.md) | shipped (1.0.0) | R2 first |
 
 ## Releases
 
@@ -152,7 +159,7 @@ future changes rather than gating the initial release.
 ### R2 — Connectivity
 
 - Goal: a session that survives the real internet.
-- Next: publish the prepared `1.0.0` coordination package, then implement RealtimeClient using its Emitter.
+- Next: complete release review for realtime, keepalive, RPC, and the additive coordination/watchdog changes; then build the protocol demo and verify a Ringotel backend adapter.
 - Build: `coordination`, `transport` (shared contract and WebSocket, HTTP, WebTransport adapters), `idle-watchdog`, `keepalive`, `realtime`, `rpc`, `auth-session`, `net-monitor`; extract `fsm-retry` from the realtime client's backoff implementation (the "real call site" the Delays ADR was waiting for). Start `examples/server`.
 - Decision gate: keep `transport` limited to one physical attempt and keep logical lifecycle policy in `realtime`. HTTP and WebTransport share the package and a documented binary framing contract; validate deployment servers against it.
 - Exit criteria: coordination public contracts and declarations pass validation, the private `examples/coordination/` workspace package runs through `pnpm health`, and coordination is documented and released at `1.0.0`; the connectivity demo signs in, stays connected through network flaps and laptop sleep, re-authenticates silently, and shows connection state.
