@@ -113,8 +113,34 @@ A matched RPC error proves that the peer answered. It does not prove authenticat
 | `createKeepalive` | omitted | Optional per-ready-attempt monitor factory. Use `null` to omit it. |
 | `keepalive` | omitted | Create the default Keepalive only when a probe is provided. Requires `idleMs`, `deadlineMs`, and `probe(signal)`. |
 | `connectTimeoutMs` | `10_000` | Maximum time to open the transport. Positive integer milliseconds. |
-| `reconnect` | defaults | Default retry delay options: `initialDelayMs`, `maxDelayMs`, and `factor`. |
-| `scheduler`, `random`, `logger` | platform defaults | Timer, random draw, and diagnostic ports used by selected defaults. |
+| `reconnect` | defaults | Default retry options: `initialDelayMs`, `maxDelayMs`, `factor`, and ratio `jitter`. |
+| `scheduler`, `random`, `logger` | platform defaults | Timer provider, fallback random draw, and diagnostic ports used by selected defaults. |
+
+The default retry driver uses `createBackoffScheduler` from coordination. Attempts are one-based
+and belong to the client lifecycle. The default jitter range is `[0, 1)`. Set `reconnect.jitter` to
+`false` to skip random draws, or provide `minRatio`, `maxRatio`, and `random`. A nested random
+function takes precedence over top-level `random`; when it is omitted, the top-level function is
+used. A custom retry driver or `retry: null` does not validate or use default retry options. The
+factory shares one timer provider with the connection deadline, default retry driver, and
+configured default Keepalive. Direct `/core` construction keeps its native timer fallback, and
+standalone IdleWatchdog stays independent of coordination.
+
+To inject a timer provider and set jitter:
+
+```js
+const client = createRealtimeClient({
+  createTransport,
+  scheduler: customScheduler,
+  reconnect: {
+    initialDelayMs: 500,
+    maxDelayMs: 30_000,
+    jitter: { minRatio: 0.25, maxRatio: 1, random: Math.random },
+  },
+});
+```
+
+Here, `createTransport` and `customScheduler` are supplied by the application.
+Omit `scheduler` to use coordination's `defaultScheduler`.
 
 Only selected defaults validate their own options. A custom transport does not need transport-adapter options. A custom monitor makes the default Keepalive options irrelevant. Explicit `null` does not select a default.
 
@@ -130,6 +156,9 @@ Only selected defaults validate their own options. A custom transport does not n
 | `stop()` / `[Symbol.dispose]()` | Stop permanently and release owned resources. |
 
 The transport `onError` callback is diagnostic. It reports an error but does not retire the attempt. The transport `onClose` callback ends the attempt and can start recovery. A failed start, connect timeout, or monitor failure also ends the attempt. `RealtimeClient.onError` reports diagnostics and attempt failure details. A failed local send reports an error and returns `false` without retiring a usable connection. RPC observes the same final stopped snapshot as other client subscribers.
+
+Applications that used realtime's `createRetry` helper must import `createBackoffScheduler` from
+`@bazariodev/coordination`. The application still owns attempt counting and reset policy.
 
 ## Errors
 

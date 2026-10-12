@@ -1,7 +1,7 @@
 {
   "name": "@bazariodev/coordination",
   "version": "1.0.0",
-  "description": "Small in-process coordination primitives: FIFO storage, task executors, and typed events.",
+  "description": "Small in-process coordination primitives: FIFO storage, task executors, typed events, and backoff scheduling.",
   "license": "MIT",
   "author": "Bazario",
   "repository": {

@@ -2,7 +2,7 @@
 
 - Status: Accepted
 - Date: 2026-09-28
-- Revised: 2026-10-11
+- Revised: 2026-10-12
 
 ## Context
 
@@ -410,3 +410,28 @@ A pending response retains its fixed deadline. The application supplies the depe
 Keepalive and IdleWatchdog do not acquire a coordination dependency. Fixed timing remains default.
 
 RealtimeClient and RpcClient now use private Emitters in the implemented workspace packages.
+
+## Addendum: shared backoff scheduling (2026-10-12)
+
+Coordination now exports `defaultScheduler` and `createBackoffScheduler(options)`. The default
+provider forwards timer calls to the current platform globals and stores no jobs. Its
+handles are opaque. Each backoff call accepts a one-based attempt owned by its caller, creates an
+independent timer, and returns idempotent cancellation. A zero delay remains asynchronous.
+
+The default delay uses a 500 ms initial value, factor 2, a 30,000 ms cap, and full jitter with ratios
+in `[0, 1)`. The capped exponential base is multiplied by the selected finite ratio, rounded down,
+and capped again. `jitter: false` uses the base delay and makes no random draw. Ordered finite,
+nonnegative ratios may exceed 1; equal ratios also skip the random source. An injected source must
+return a finite number in `[0, 1)` and is called without a receiver. The scheduler validates delay
+options before it schedules work and leaves attempt counting, reset policy, and workflow ownership
+to the caller.
+
+Realtime's root factory shares one provider across its connection deadline, default backoff, and
+default Keepalive. Its top-level `random` remains the fallback for default backoff; a configured
+`reconnect.jitter.random` takes precedence, and `jitter: false` skips draws. Custom retry drivers
+and `retry: null` do not use the default backoff options. Direct RealtimeClient core construction
+keeps its native timer fallback. Standalone IdleWatchdog remains independent of coordination.
+
+Applications that imported the removed Realtime `createRetry` helper must import
+`createBackoffScheduler` from coordination. The new helper is an explicit timer and delay
+mechanism; it does not count attempts or decide whether a retry is allowed.

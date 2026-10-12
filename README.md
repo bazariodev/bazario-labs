@@ -16,7 +16,7 @@ JavaScript building blocks for realtime connections, chat, and telephony, with T
 | [`@bazariodev/transport`](./packages/transport) | Shared transport contract and plain JavaScript WebSocket, streaming HTTP, and WebTransport adapters with bounded writes and disposal. |
 | [`@bazariodev/idle-watchdog`](./packages/idle-watchdog) | Dependency-free, re-armable one-shot inactivity timer with explicit activity reporting, idle subscriptions, and disposal. |
 | [`@bazariodev/keepalive`](./packages/keepalive) | Abortable promise probes with idle and response deadlines. |
-| [`@bazariodev/coordination`](./packages/coordination) | FIFO Queue storage, task executors, typed event subscriptions, and bounded jitter functions. |
+| [`@bazariodev/coordination`](./packages/coordination) | FIFO Queue storage, task executors, typed event subscriptions, bounded jitter, and caller-owned backoff scheduling. |
 | [`@bazariodev/rpc`](./packages/rpc) | Flat request and notification frames with bounded response correlation and cancellation. |
 | [`@bazariodev/realtime`](./packages/realtime) | Injected client for connection readiness, attempt replacement, and recovery over opaque messages. |
 
@@ -37,9 +37,10 @@ runtime behavior did not. Upgrade FSM Delays and FSM Effects together.
 
 The current realtime design uses opaque messages and an optional `JsonTransport` codec. The root
 factory selects lifecycle and retry defaults; the `/core` entry accepts injected dependencies without
-importing those defaults. Keepalive runs an abortable probe only when configured. RPC uses the
-RealtimeClient directly and sends flat request/result/error frames. The application owns auth,
-online state, wake handling, readiness beyond transport open, and domain synchronization. See the
+importing those defaults. The root factory shares one coordination timer provider across connection
+timeout, default retry, and default Keepalive. Keepalive runs an abortable probe only when configured.
+RPC uses the RealtimeClient directly and sends flat request/result/error frames. The application owns
+auth, online state, wake handling, readiness beyond transport open, and domain synchronization. See the
 [current composition decision](./.agent/ADR/Modules/RealtimeComposition.md).
 
 These guides are HTML pages. GitHub shows their source, so clone the repository and open them in a

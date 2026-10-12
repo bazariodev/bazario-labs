@@ -1,7 +1,7 @@
 # Shared Backoff Scheduler
 
 Date: 2026-10-12
-Status: In progress.
+Status: Complete.
 
 ## Contract
 
@@ -30,8 +30,8 @@ Status: In progress.
 
 1. [x] Add coordination runtime, declarations, and tests. Review the result.
 2. [x] Integrate realtime, move helper tests and exports, and test injection. Review.
-3. Update package documentation, current ADRs, and pending changesets.
-4. Run the workspace gate and check the final scope.
+3. [x] Update package documentation, current ADRs, and pending changesets. Review.
+4. [x] Run the workspace gate and check the final scope.
 
 Luna implements one task at a time. The parent reviews each result before the
 next task. Use plain JavaScript, external declarations, Vitest, Biome, and STE.
@@ -56,7 +56,7 @@ The source snapshot and hashes are saved at
 
 ## Task 1 Evidence
 
-The new tests failed before the exports existed. Coordination now passes 53 tests,
+The new tests failed before the exports existed. At this checkpoint, coordination passed 53 tests,
 its build, ESM and CommonJS consumer checks, browser and worker type checks, and
 Biome. The declarations use opaque handles and add no global timer type reference.
 The additional declaration check supplied the existing executor `AbortSignal`
@@ -77,3 +77,38 @@ consumers pass. The core still loads without the default implementation packages
 The old retry tests were moved to coordination's scheduler coverage. The duplicate
 realtime helper and its exports were removed. The new factory tests cover shared
 timer injection, jitter configuration, disabled draws, and random-source selection.
+
+## Task 3 Evidence
+
+Updated coordination and realtime package guidance, current coordination and realtime
+composition ADRs, root package overview, and pending changesets. Added the coordination minor
+changeset and documented migration from realtime's removed `createRetry` helper. The README
+examples compile against the package declarations.
+
+## Final Review and Verification
+
+The provider check initially required an object container. That rejected callable
+providers with the required operations. A new test failed on that restriction.
+The check now validates only `setTimeout` and `clearTimeout`; all 16 scheduler
+tests pass. Coordination passes 54 package tests.
+
+`pnpm health` passed on 2026-10-12: builds, declarations, lint, and 585 tests in
+52 test files. Biome checked 217 files without changes. The suite includes local
+HTTP and WebSocket tests and packed ESM and CommonJS consumers. The log is saved at
+`/private/tmp/bazario-backoff-scheduler-health.log`.
+
+Changesets status selects coordination `1.1.0` and realtime `0.1.0` for their
+pending minor releases. Package versions were not changed. No package was published.
+
+The scope check found 19 changed files, five new files, and the two removed retry
+files. All are within this task. The five unrelated documentation files match the
+saved baseline. No Ringotel file or test was changed.
+
+## Local Commits
+
+- `1161448`: Coordination timer provider and configurable backoff.
+- `fad0f6f`: Realtime factory integration and helper migration.
+- `dc44d67`: Structural timer provider validation.
+
+The final documentation commit includes the examples, decision records, pending
+changesets, and this verification record. No commits were pushed.

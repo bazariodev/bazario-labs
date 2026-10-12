@@ -16,7 +16,20 @@ The lifecycle uses `idle`, `connecting`, `ready`, and `backoff`, plus terminal `
 
 Snapshots are stable per committed state. Callers treat the snapshot and context as read-only. `onReady` reports `initial` until this client first reaches ready, then reports `reconnect` after later ready transitions. This reason describes this client's successful history; it does not encode an application's backoff count or desired-state policy.
 
-The root `createRealtimeClient(options)` creates the default FSM, event publisher, retry driver, and any configured Keepalive. The `RealtimeClient` class takes injected dependencies. The `/core` entry imports no default implementation packages. The application installs its chosen transport adapter directly. `JsonTransport` is an optional text codec. It parses or serializes once and does not validate the application schema.
+The root `createRealtimeClient(options)` creates the default FSM, event publisher, retry driver,
+and any configured Keepalive. It selects one timer provider and shares it with the connection
+deadline, default retry driver, and configured default Keepalive.
+
+The default retry driver comes from coordination's `createBackoffScheduler`. `reconnect.jitter`
+configures ratio jitter. Top-level `random` is its fallback; an explicit nested random function
+takes precedence. `jitter: false` makes no random draw. Custom retry drivers and `retry: null`
+bypass the default retry options.
+
+The `RealtimeClient` class takes injected dependencies. The `/core` entry imports no default
+implementation packages and keeps its native timer fallback. Standalone IdleWatchdog remains
+independent of coordination. The application installs its chosen transport adapter directly.
+`JsonTransport` is an optional text codec. It parses or serializes once and does not validate
+the application schema.
 
 `JsonTransport` checks incoming frame size before parsing. The default limit is 1,048,576 UTF-8 bytes. The application can set `maxIncomingBytes` to a larger positive safe integer. The codec skips frames above this limit with a warning. Root and core exports use one shared client class within each module format.
 

@@ -1,7 +1,8 @@
 # @bazariodev/coordination
 
-Small in-process building blocks for FIFO storage, synchronous and asynchronous task execution, and
-typed events, and bounded jitter functions. A `Queue` only stores values; executors own a private queue and decide when tasks run.
+Small in-process building blocks for FIFO storage, synchronous and asynchronous task execution,
+typed events, jitter, and timer scheduling. A `Queue` only stores values; executors own a private
+queue and decide when tasks run.
 
 ## Install
 
@@ -95,6 +96,45 @@ except equal bounds return their fixed value without sampling. Tests can inject 
 Bounds must be ordered integers in `[1, 2_147_483_647]`; zero is rejected at construction so every
 draw is a valid positive idle duration. Random results must be finite numbers in `[0, 1)`.
 
+## Backoff scheduling
+
+Use `createBackoffScheduler` when the application owns the retry count and decides when to stop or
+reset retries:
+
+```js
+import { createBackoffScheduler } from '@bazariodev/coordination';
+
+const backoff = createBackoffScheduler({
+  initialDelayMs: 500,
+  maxDelayMs: 30_000,
+  jitter: { minRatio: 0.25, maxRatio: 1 },
+});
+
+const onRetry = () => console.log('Retry is due');
+const failedAttempts = 1; // The application owns this count.
+const cancel = backoff.schedule(failedAttempts, onRetry);
+cancel(); // Cancel this callback if connection intent changes.
+```
+
+`defaultScheduler` forwards timer calls to the current global functions. It has no pending-job
+state. Timer handles are opaque to callers. The default provider runs a zero-delay callback later,
+not during `schedule()`.
+
+Each `schedule(attempt, callback)` call owns one timer and returns its idempotent cancellation
+function. Attempts are positive integers starting at one. The caller increments and resets the
+attempt count. The scheduler does not start a connection, count failures, or choose a lifecycle.
+
+The default delay is `min(30_000, 500 * 2 ** (attempt - 1))`, with a random ratio in `[0, 1)`. The
+base is capped before jitter. `jitter: false` uses the base delay and makes no random draw. A
+configured ratio is sampled between `minRatio` and `maxRatio`; the result is multiplied by the
+capped base, rounded down, then capped at `maxDelayMs`. Ratios must be finite, nonnegative, and
+ordered. Ratios can be greater than 1. Equal ratios skip randomness. A random function is called
+without a receiver and must return a finite value in `[0, 1)`.
+
+`initialDelayMs` and `maxDelayMs` must be positive integers no greater than `2_147_483_647`, and
+`maxDelayMs` must be at least `initialDelayMs`. `factor` must be finite and at least 1. Construction
+does not schedule work or draw randomness. Provider errors reach the caller.
+
 ## Behavior
 
 - `Queue` stores any value, including `undefined`, in FIFO order. It never calls or schedules values.
@@ -126,6 +166,8 @@ draw is a valid positive idle duration. Random results must be finite numbers in
 | Export | Main methods |
 | --- | --- |
 | `createJitter({ minMs, maxMs, random? })` | Returns a `() => number` duration function. |
+| `defaultScheduler` | Stateless `setTimeout` and `clearTimeout` provider. |
+| `createBackoffScheduler(options?)` | Returns `schedule(attempt, callback)`, which returns cancellation. |
 | `Queue<Value>` | `enqueue(value)`, `dequeue()`, `peek()`, `size`, `clear()` |
 | `SyncExecutor` | `enqueue(task)`, `stop()`, `[Symbol.dispose]()` |
 | `AsyncExecutor` | `enqueue(task)`, `stop()`, `[Symbol.dispose]()` |
@@ -134,6 +176,21 @@ draw is a valid positive idle duration. Random results must be finite numbers in
 | Emitter option | Type | Default | Meaning |
 | --- | --- | --- | --- |
 | `logger` | `{ error(message, { type, error }): void }` | No-op | Receives synchronous listener failures; must not throw. |
+
+| Backoff option | Type | Default | Meaning |
+| --- | --- | --- | --- |
+| `initialDelayMs` | positive integer | `500` | First capped exponential delay. |
+| `maxDelayMs` | positive integer | `30_000` | Cap for the base and final jittered delay. |
+| `factor` | finite number >= 1 | `2` | Growth per one-based attempt. |
+| `scheduler` | `TimeoutScheduler` | `defaultScheduler` | Supplies timer calls; handles stay opaque. |
+| `jitter` | ratio options or `false` | full jitter, `[0, 1)` | `false` skips random draws; equal ratios also skip draws. |
+
+The `TimeoutScheduler` methods are `setTimeout(callback, delayMs)` and `clearTimeout(handle)`. The
+handle type is `unknown`; pass it back to the same provider when you clear the timer.
+`BackoffJitterOptions` accepts finite, ordered,
+nonnegative `minRatio` and `maxRatio` values, plus an optional `random()` function. The default range
+uses bounds 0 and 1; ratios above 1 are allowed and the final delay stays capped. Set `jitter` to
+`false` to disable it.
 
 An empty Queue returns `undefined` from `dequeue()` and `peek()`; use `size` to distinguish that from
 a stored `undefined`. `SyncExecutor.enqueue()` returns `void`; `AsyncExecutor.enqueue()` returns
@@ -179,6 +236,8 @@ ignores its signal may still fulfill after stop.
 | --- | --- |
 | Invalid jitter bounds / random result | Throws `RangeError` at construction / draw respectively. |
 | Non-function jitter random source | Throws `TypeError` at construction. |
+| Invalid backoff delay, factor, ratio, or random result | Throws `RangeError` during construction / scheduling. |
+| Invalid timer provider or random source | Throws `TypeError` during construction. |
 | Sync task throws | Pending drain is cleared; the same error is thrown from the outer enqueue. |
 | Async task throws or rejects | That submission rejects with the original error; draining continues. |
 | Submit after SyncExecutor stops | Throws a `DOMException` named `AbortError`. |
