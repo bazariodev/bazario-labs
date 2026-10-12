@@ -14,7 +14,7 @@
     "url": "https://github.com/Bazariodev/bazario-labs/issues"
   },
   "engines": {
-    "node": ">=22.0.0",
+    "node": "^22.12.0 || ^24.0.0 || >=26.0.0",
     "pnpm": ">=10.0.0"
   },
   "packageManager": "pnpm@10.33.2",
@@ -32,14 +32,16 @@
   },
   "devDependencies": {
     "@biomejs/biome": "^2.4.13",
-    "@changesets/cli": "^2.31.0",
-    "tsup": "^8.5.1",
+    "@changesets/cli": "^3.0.3",
+    "rollup": "^4.64.5",
     "typescript": "^6.0.3",
-    "vitest": "^4.1.5"
+    "vite": "^8.3.4",
+    "vitest": "^4.1.11"
   },
   "pnpm": {
-    "onlyBuiltDependencies": [
-      "esbuild"
-    ]
+    "overrides": {
+      "vite>esbuild": "-",
+      "source-map-js": "^1.2.2"
+    }
   }
 }

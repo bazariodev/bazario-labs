@@ -60,7 +60,8 @@ files. Every package README must stand on its own.
 - Avoid `any` in code and public interfaces.
 - Target modern JavaScript with `ES2022`.
 - Use `NodeNext` module settings.
-- Build packages with `tsup` and ship both ESM and CommonJS outputs.
+- Build packages with the shared Rollup script and ship both ESM and CommonJS outputs.
+- Copy public declarations to matching ESM `.d.ts` and CommonJS `.d.cts` files.
 - Preserve public declaration files and source maps for published packages; provide matching ESM and CommonJS declarations.
 - SDK packages should remain tree-shakable through focused exports and side-effect-free design.
 

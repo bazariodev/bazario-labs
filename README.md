@@ -55,7 +55,8 @@ browser:
 
 ## Getting started
 
-Requires Node.js >= 22 and pnpm >= 10. The workspace pins pnpm 10.33.2 in `package.json`.
+Workspace tools require Node.js 22.12 or later in the 22.x line, Node.js 24.x, or Node.js 26 or
+later. Requires pnpm 10 or later. The workspace pins pnpm 10.33.2 in `package.json`.
 
 ```sh
 pnpm install
@@ -78,6 +79,11 @@ pnpm test
 
 Workspace imports resolve through each package's `dist` exports, so typechecks and tests need
 the build output. The root commands above prepare it automatically, including on a fresh checkout.
+
+Packages use one Rollup build script at `scripts/build-package.mjs`. It reads each package's
+export entries, writes ESM and CommonJS with source maps, and copies the public declarations.
+The React binding adds a `use client` banner. Older ADR implementation plans can refer to the
+previous build tool.
 
 To work on one package, build it together with its workspace dependencies (the trailing `...`),
 then test and type-check it. Replace `keepalive` with the package you're working on:

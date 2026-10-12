@@ -1059,7 +1059,7 @@ The implementation test plan must include:
 - default adapter: global `fetch`
 - exports: root runtime, `@bazariodev/api/testing`, and optional focused codec/adapter subpaths only
   when they produce a measurable bundle boundary
-- build: tsup, ESM + CJS + declarations + source maps, `sideEffects: false`
+- build: shared Rollup script, ESM and CJS, copied declarations, source maps, `sideEffects: false`
 - tests: Vitest, public behavior first; compile-time inference tests in a dedicated type-test config
 - CI: typecheck, Biome, tests, build, package-export validation, and a recorded min+gzip core budget
 - compatibility: versioned serializable descriptors and port conformance suites; engine internals

@@ -33,6 +33,7 @@ The goal of the repository is to provide reusable SDK building blocks for commun
 
 - Language: plain JavaScript implementations with TypeScript public declarations
 - Runtime target: Node.js 22+
+- Workspace tools: Node.js 22.12+ in the 22.x line, 24.x, or 26+
 - Package manager: pnpm
 - Workspace model: pnpm monorepo
 - Module output: ESM and CommonJS
@@ -42,7 +43,7 @@ The goal of the repository is to provide reusable SDK building blocks for commun
 
 ## Tooling
 
-- Build: `tsup`
+- Build: Rollup with one shared package build script
 - Testing: `vitest`
 - Linting and formatting: `Biome`
 - Versioning and publishing: `Changesets`

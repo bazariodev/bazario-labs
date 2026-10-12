@@ -129,7 +129,8 @@ Rules:
 
 - `getServerSnapshot` returns `source.snapshot` — the machine constructed for the request renders its initial (or pre-advanced) state as markup
 - hydration consistency (same machine state on server and first client render) is the consumer's responsibility; the README shows the "construct per request / construct in `useFsm`" split
-- dist files carry a `'use client'` banner (tsup `banner` option, with tree-shaking off because Rollup's tree-shaking pass drops module-level directives; a one-module package has nothing to shake) so importing from an RSC module graph marks the boundary correctly; the package itself has no server entry
+- Both ESM and CommonJS entries carry a `'use client'` banner from the shared Rollup build. This
+  marks the client boundary for imports from an RSC module graph. The package has no server entry.
 
 ## Error policy
 
@@ -155,9 +156,11 @@ Module exports:
 - new package `@bazariodev/fsm-react` in the workspace
 - peer dependencies: `react` (`^18.0.0 || ^19.0.0`) and `@bazariodev/fsm` (current major, types only — no runtime import)
 - `@bazariodev/fsm-effects` / `fsm-delays` / `fsm-hierarchy` are **not** peers; they meet this package only inside consumer `attach` callbacks
-- same tooling (tsup, vitest, Biome), own README + LICENSE, own changeset cadence, `internal/messages.js` per workspace convention
+- shared Rollup build, Vitest, and Biome; own README and LICENSE, own changeset cadence, and
+  `internal/messages.js` per workspace convention
 - implemented in plain JavaScript with a hand-written public `index.d.ts`, shipped as matching ESM `.d.ts` and CommonJS `.d.cts` declarations; `src/__tests__/interface.ts` typechecks the public types against the real `Fsm` and `FsmHierarchy`
-- divergences from sibling configs, both deliberate: vitest runs with a DOM environment (`jsdom`) and `@testing-library/react` as dev dependencies; tsup adds the `'use client'` banner
+- The React package uses `jsdom` and `@testing-library/react` for DOM tests. Its build command adds
+  the `'use client'` banner.
 - `sideEffects: false` is preserved — the banner is a directive, not a side effect
 
 ## Composition vs in-core
