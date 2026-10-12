@@ -2,13 +2,40 @@
 import type { EventKey } from '@bazariodev/coordination';
 import {
   AsyncExecutor,
+  type BackoffJitterOptions,
+  type BackoffScheduler,
+  type BackoffSchedulerOptions,
+  createBackoffScheduler,
   createJitter,
+  defaultScheduler,
   type Emitter,
   Queue,
+  type TimeoutScheduler,
 } from '@bazariodev/coordination';
 
 const draw: () => number = createJitter({ minMs: 40_000, maxMs: 60_000 });
 void draw;
+const timer: TimeoutScheduler = defaultScheduler;
+const jitter: BackoffJitterOptions = {
+  minRatio: 0.2,
+  maxRatio: 0.8,
+  random: Math.random,
+};
+const options: BackoffSchedulerOptions = { scheduler: timer, jitter };
+const backoff: BackoffScheduler = createBackoffScheduler(options);
+const cancelBackoff: () => void = backoff.schedule(1, () => undefined);
+cancelBackoff();
+const objectTimer: TimeoutScheduler = {
+  setTimeout: (callback) => ({ callback }),
+  clearTimeout: (handle) => {
+    if (typeof handle !== 'object' || handle === null) {
+      throw new TypeError('Expected an object timer handle');
+    }
+  },
+};
+void objectTimer;
+// @ts-expect-error random must return a number
+createBackoffScheduler({ jitter: { random: () => '0.5' } });
 // @ts-expect-error maximum is required
 createJitter({ minMs: 100 });
 // @ts-expect-error randomness returns a number

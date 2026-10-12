@@ -2,6 +2,41 @@
 
 type Unsubscribe = () => void;
 
+/** Timer operations with opaque handles. Callbacks run asynchronously. */
+export type TimeoutScheduler = Readonly<{
+  setTimeout(callback: () => void, delayMs: number): unknown;
+  clearTimeout(handle: unknown): void;
+}>;
+
+/** Ratio bounds for exponential delay jitter. Equal bounds skip random draws. */
+export type BackoffJitterOptions = Readonly<{
+  minRatio?: number;
+  maxRatio?: number;
+  /** Called without a receiver. Must return a finite number in [0, 1). */
+  random?: () => number;
+}>;
+
+export type BackoffSchedulerOptions = Readonly<{
+  initialDelayMs?: number;
+  maxDelayMs?: number;
+  factor?: number;
+  scheduler?: TimeoutScheduler;
+  jitter?: BackoffJitterOptions | false;
+}>;
+
+export type BackoffScheduler = Readonly<{
+  /** Schedule one caller-owned, one-based attempt and return its cancellation. */
+  schedule(attempt: number, callback: () => void): Unsubscribe;
+}>;
+
+/** Stateless timer provider that forwards calls to the current global functions. */
+export declare const defaultScheduler: TimeoutScheduler;
+
+/** Create an independent exponential backoff scheduler. Owns no attempt counter. */
+export declare function createBackoffScheduler(
+  options?: BackoffSchedulerOptions,
+): BackoffScheduler;
+
 export type JitterOptions = Readonly<{
   /** Inclusive integer bounds in [1, 2_147_483_647], minMs <= maxMs. */
   minMs: number;

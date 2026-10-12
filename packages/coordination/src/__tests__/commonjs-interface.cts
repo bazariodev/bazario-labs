@@ -1,5 +1,26 @@
 import Coordination = require('@bazariodev/coordination');
 
+const timer: Coordination.TimeoutScheduler = Coordination.defaultScheduler;
+const options: Coordination.BackoffSchedulerOptions = {
+  scheduler: timer,
+  jitter: false,
+};
+const backoff: Coordination.BackoffScheduler =
+  Coordination.createBackoffScheduler(options);
+const cancelBackoff: () => void = backoff.schedule(1, () => undefined);
+cancelBackoff();
+const objectTimer: Coordination.TimeoutScheduler = {
+  setTimeout: (callback) => ({ callback }),
+  clearTimeout: (handle) => {
+    if (typeof handle !== 'object' || handle === null) {
+      throw new TypeError('Expected an object timer handle');
+    }
+  },
+};
+void objectTimer;
+// @ts-expect-error random must return a number
+Coordination.createBackoffScheduler({ jitter: { random: () => '0.5' } });
+
 type Events = {
   ready: undefined;
   message: Readonly<{ text: string }>;
