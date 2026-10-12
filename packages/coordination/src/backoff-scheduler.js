@@ -31,10 +31,8 @@ export function createBackoffScheduler(options = {}) {
     );
   }
   if (
-    scheduler === null ||
-    typeof scheduler !== 'object' ||
-    typeof scheduler.setTimeout !== 'function' ||
-    typeof scheduler.clearTimeout !== 'function'
+    typeof scheduler?.setTimeout !== 'function' ||
+    typeof scheduler?.clearTimeout !== 'function'
   ) {
     throw new TypeError(
       'scheduler must provide setTimeout and clearTimeout functions',

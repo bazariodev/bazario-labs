@@ -30,6 +30,21 @@ describe('createBackoffScheduler', () => {
     expect(timer.jobs).toEqual([]);
   });
 
+  it('accepts any provider with the required timer operations', () => {
+    const timer = makeTimer();
+    const provider = Object.assign(() => {}, timer);
+    const backoff = createBackoffScheduler({
+      scheduler: provider,
+      jitter: false,
+    });
+    const callback = vi.fn();
+
+    backoff.schedule(1, callback);
+    timer.jobs[0].callback();
+
+    expect(callback).toHaveBeenCalledOnce();
+  });
+
   it('keeps the default delays and asynchronous zero-delay callbacks', async () => {
     const timer = makeTimer();
     const defaults = createBackoffScheduler({
