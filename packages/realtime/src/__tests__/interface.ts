@@ -78,6 +78,32 @@ const jsonClient = createRealtimeClient({
 jsonClient.send({ id: 'x', method: 'sample', params: null });
 jsonClient.stop();
 
+const jitterClient = createRealtimeClient({
+  createTransport: () => transport,
+  reconnect: {
+    jitter: { minRatio: 0.2, maxRatio: 0.8, random: Math.random },
+  },
+});
+jitterClient.stop();
+createRealtimeClient({
+  createTransport: () => transport,
+  reconnect: { jitter: false },
+});
+createRealtimeClient({
+  createTransport: () => transport,
+  reconnect: {
+    // @ts-expect-error nested random must return a number
+    jitter: { random: () => '0.5' },
+  },
+});
+createRealtimeClient({
+  createTransport: () => transport,
+  reconnect: {
+    // @ts-expect-error jitter must be false or an options object
+    jitter: 1,
+  },
+});
+
 type CustomMessage = Readonly<{ data: string }>;
 declare const customDeps: RealtimeClientDeps<CustomMessage>;
 const customCore = new RealtimeClient(customDeps);

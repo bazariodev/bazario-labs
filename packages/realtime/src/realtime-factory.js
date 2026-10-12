@@ -1,10 +1,13 @@
-import { Emitter } from '@bazariodev/coordination';
+import {
+  createBackoffScheduler,
+  defaultScheduler,
+  Emitter,
+} from '@bazariodev/coordination';
 import { Fsm } from '@bazariodev/fsm';
 import { Keepalive } from '@bazariodev/keepalive';
 
 import { createFsmConfig } from './fsm-config.js';
 import { RealtimeClient } from './realtime-client.js';
-import { createRetry } from './retry.js';
 
 const NOOP_LOGGER = { debug() {}, error() {}, warn() {} };
 const DEFAULT_CONNECT_TIMEOUT_MS = 10_000;
@@ -17,22 +20,40 @@ export function createRealtimeClient(options = {}) {
     retry,
     createKeepalive,
     keepalive,
-    scheduler,
+    scheduler = defaultScheduler,
     connectTimeoutMs = DEFAULT_CONNECT_TIMEOUT_MS,
     logger = NOOP_LOGGER,
     reconnect = {},
     random,
   } = options;
 
-  const retryDriver =
-    retry === undefined
-      ? createRetry({ ...reconnect, random, scheduler })
-      : retry;
+  let retryDriver = retry;
+  if (retry === undefined) {
+    const retryOptions = { ...reconnect, scheduler };
+    const jitter = reconnect.jitter;
+    if (random !== undefined && jitter === undefined) {
+      retryOptions.jitter = { random };
+    } else if (
+      random !== undefined &&
+      jitter !== false &&
+      jitter !== null &&
+      typeof jitter === 'object' &&
+      jitter.random === undefined
+    ) {
+      retryOptions.jitter = { ...jitter, random };
+    }
+    retryDriver = createBackoffScheduler(retryOptions);
+  }
   const monitorFactory =
     createKeepalive === undefined
       ? keepalive === undefined
         ? null
-        : () => new Keepalive({ ...keepalive, scheduler, logger })
+        : () =>
+            new Keepalive({
+              ...keepalive,
+              scheduler,
+              logger,
+            })
       : createKeepalive;
 
   return new RealtimeClient({

@@ -29,7 +29,7 @@ Status: In progress.
 ## Tasks
 
 1. [x] Add coordination runtime, declarations, and tests. Review the result.
-2. Integrate realtime, move helper tests and exports, and test injection. Review.
+2. [x] Integrate realtime, move helper tests and exports, and test injection. Review.
 3. Update package documentation, current ADRs, and pending changesets.
 4. Run the workspace gate and check the final scope.
 
@@ -65,3 +65,15 @@ type, without timer globals.
 Removing the active-callback guard in a temporary source copy caused two tests
 to fail. Those tests check cancelled jobs, repeated callbacks, and cleanup failure.
 The workspace source was not changed by this check.
+
+## Task 2 Evidence
+
+Four of the five initial factory tests failed before integration because nested
+jitter settings were ignored. The completed realtime suite passes 96 tests,
+including local WebSocket tests. The build, declarations, browser and worker type
+checks, Biome, and diff checks pass. Packed ESM and CommonJS runtime and type
+consumers pass. The core still loads without the default implementation packages.
+
+The old retry tests were moved to coordination's scheduler coverage. The duplicate
+realtime helper and its exports were removed. The new factory tests cover shared
+timer injection, jitter configuration, disabled draws, and random-source selection.

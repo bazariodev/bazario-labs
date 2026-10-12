@@ -35,3 +35,29 @@ const client = Realtime.createRealtimeClient({
 client.send('hello');
 core.stop();
 client.stop();
+
+const jitterClient = Realtime.createRealtimeClient({
+  createTransport: () => transport,
+  reconnect: {
+    jitter: { minRatio: 0.2, maxRatio: 0.8, random: Math.random },
+  },
+});
+jitterClient.stop();
+Realtime.createRealtimeClient({
+  createTransport: () => transport,
+  reconnect: { jitter: false },
+});
+Realtime.createRealtimeClient({
+  createTransport: () => transport,
+  reconnect: {
+    // @ts-expect-error nested random must return a number
+    jitter: { random: () => '0.5' },
+  },
+});
+Realtime.createRealtimeClient({
+  createTransport: () => transport,
+  reconnect: {
+    // @ts-expect-error jitter must be false or an options object
+    jitter: 1,
+  },
+});

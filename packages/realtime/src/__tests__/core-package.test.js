@@ -151,6 +151,33 @@ it('packs an isolated core for ESM, CJS, and strict TypeScript consumers', async
       );
       expect(result.status, result.stderr).toBe(0);
     }
+
+    await writeFile(join(projectDirectory, 'backoff.mts'), backoffEsmTypes);
+    await writeFile(join(projectDirectory, 'backoff.cts'), backoffCjsTypes);
+    await writeFile(
+      join(projectDirectory, 'tsconfig.backoff.json'),
+      JSON.stringify({
+        compilerOptions: {
+          strict: true,
+          skipLibCheck: false,
+          target: 'ES2022',
+          module: 'NodeNext',
+          moduleResolution: 'NodeNext',
+          noEmit: true,
+          types: [],
+        },
+        include: ['backoff.mts', 'backoff.cts'],
+      }),
+    );
+    const backoffTypecheck = spawnSync(
+      process.execPath,
+      [tsc, '--project', join(projectDirectory, 'tsconfig.backoff.json')],
+      { cwd: projectDirectory, encoding: 'utf8' },
+    );
+    expect(
+      backoffTypecheck.status,
+      backoffTypecheck.stdout + backoffTypecheck.stderr,
+    ).toBe(0);
   } finally {
     await rm(directory, { recursive: true, force: true });
   }
@@ -158,7 +185,7 @@ it('packs an isolated core for ESM, CJS, and strict TypeScript consumers', async
 
 const esmConsumer = `
 import assert from 'node:assert/strict';
-import { createRetry, JsonTransport, RealtimeClient } from '@bazariodev/realtime/core';
+import { JsonTransport, RealtimeClient } from '@bazariodev/realtime/core';
 const listeners = new Set();
 let state = 'idle';
 let snapshot = { value: state, previousValue: null, context: { attempt: 0 }, version: 0 };
@@ -190,12 +217,11 @@ assert.equal(client.state, 'ready');
 assert.equal(client.send({ value: 'text' }), true);
 client.stop();
 assert.equal(client.state, 'stopped');
-const cancel = createRetry({ initialDelayMs: 1, maxDelayMs: 1, random: () => 0 }).schedule(1, () => {});
-cancel();
 `;
 
 const esmIdentityConsumer = `
 import assert from 'node:assert/strict';
+import { createBackoffScheduler, defaultScheduler } from '@bazariodev/coordination';
 import * as Root from '@bazariodev/realtime';
 import * as Core from '@bazariodev/realtime/core';
 assert.equal(Root.RealtimeClient, Core.RealtimeClient);
@@ -203,10 +229,13 @@ assert.equal(Root.JsonTransport, Core.JsonTransport);
 const client = Root.createRealtimeClient({ createTransport: () => ({ start() {}, send() {}, [Symbol.dispose]() {} }) });
 assert.ok(client instanceof Core.RealtimeClient);
 client.stop();
+const cancel = createBackoffScheduler({ scheduler: defaultScheduler, jitter: false }).schedule(1, () => {});
+cancel();
 `;
 
 const cjsIdentityConsumer = `
 const assert = require('node:assert/strict');
+const { createBackoffScheduler, defaultScheduler } = require('@bazariodev/coordination');
 const Root = require('@bazariodev/realtime');
 const Core = require('@bazariodev/realtime/core');
 assert.equal(Root.RealtimeClient, Core.RealtimeClient);
@@ -214,11 +243,13 @@ assert.equal(Root.JsonTransport, Core.JsonTransport);
 const client = Root.createRealtimeClient({ createTransport: () => ({ start() {}, send() {}, [Symbol.dispose]() {} }) });
 assert.ok(client instanceof Core.RealtimeClient);
 client.stop();
+const cancel = createBackoffScheduler({ scheduler: defaultScheduler, jitter: false }).schedule(1, () => {});
+cancel();
 `;
 
 const cjsConsumer = `
 const assert = require('node:assert/strict');
-const { createRetry, JsonTransport, RealtimeClient } = require('@bazariodev/realtime/core');
+const { JsonTransport, RealtimeClient } = require('@bazariodev/realtime/core');
 const listeners = new Set();
 let state = 'idle';
 let snapshot = { value: state, previousValue: null, context: { attempt: 0 }, version: 0 };
@@ -246,12 +277,10 @@ assert.equal(client.state, 'ready');
 client.send({ value: 'text' });
 client.stop();
 assert.equal(client.state, 'stopped');
-const cancel = createRetry({ initialDelayMs: 1, maxDelayMs: 1, random: () => 0 }).schedule(1, () => {});
-cancel();
 `;
 
 const esmTypes = `
-import { createRetry, JsonTransport, RealtimeClient, type RealtimeClientDeps, type RealtimeLifecycle, type RealtimeEventPublisher, type RealtimeEventMap, type RealtimeTransport } from '@bazariodev/realtime/core';
+import { JsonTransport, RealtimeClient, type RealtimeClientDeps, type RealtimeLifecycle, type RealtimeEventPublisher, type RealtimeEventMap, type RealtimeTransport } from '@bazariodev/realtime/core';
 declare const lifecycle: RealtimeLifecycle;
 declare const events: RealtimeEventPublisher<RealtimeEventMap<number>>;
 declare const transport: RealtimeTransport<number>;
@@ -267,8 +296,6 @@ const jsonEvents: RealtimeEventPublisher<RealtimeEventMap> = {
 };
 const jsonDeps: RealtimeClientDeps = { fsm: lifecycle, events: jsonEvents, createTransport: () => jsonTransport, retry: null, createKeepalive: null };
 new RealtimeClient(jsonDeps);
-const cancel = createRetry().schedule(1, () => {});
-cancel();
 `;
 
 const cjsTypes = `
@@ -285,6 +312,24 @@ const jsonEvents: Core.RealtimeEventPublisher<Core.RealtimeEventMap> = {
 };
 const jsonDeps: Core.RealtimeClientDeps = { fsm: deps.fsm, events: jsonEvents, createTransport: () => jsonTransport, retry: null, createKeepalive: null };
 new Core.RealtimeClient(jsonDeps);
-const cancel = Core.createRetry().schedule(1, () => {});
+`;
+
+const backoffEsmTypes = `
+import { createBackoffScheduler, defaultScheduler, type BackoffJitterOptions, type BackoffScheduler } from '@bazariodev/coordination';
+const jitter: BackoffJitterOptions = { minRatio: 0.2, maxRatio: 0.8, random: Math.random };
+const backoff: BackoffScheduler = createBackoffScheduler({ scheduler: defaultScheduler, jitter });
+const cancel = backoff.schedule(1, () => {});
 cancel();
+// @ts-expect-error randomness must return a number.
+createBackoffScheduler({ jitter: { random: () => '0.5' } });
+`;
+
+const backoffCjsTypes = `
+import Coordination = require('@bazariodev/coordination');
+const jitter: Coordination.BackoffJitterOptions = { minRatio: 0.2, maxRatio: 0.8, random: Math.random };
+const backoff: Coordination.BackoffScheduler = Coordination.createBackoffScheduler({ scheduler: Coordination.defaultScheduler, jitter });
+const cancel = backoff.schedule(1, () => {});
+cancel();
+// @ts-expect-error randomness must return a number.
+Coordination.createBackoffScheduler({ jitter: { random: () => '0.5' } });
 `;

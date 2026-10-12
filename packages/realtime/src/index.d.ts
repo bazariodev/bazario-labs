@@ -171,10 +171,17 @@ export type RealtimeKeepaliveOptions = Readonly<{
   idleMs: number | (() => number);
   deadlineMs: number;
 }>;
+export type ReconnectJitterOptions = Readonly<{
+  minRatio?: number;
+  maxRatio?: number;
+  /** Called without a receiver. Must return a number in [0, 1). */
+  random?: () => number;
+}>;
 export type ReconnectOptions = Readonly<{
   initialDelayMs?: number;
   maxDelayMs?: number;
   factor?: number;
+  jitter?: ReconnectJitterOptions | false;
 }>;
 export type RealtimeClientOptions<TMessage = unknown> = Readonly<{
   createTransport: RealtimeTransportFactory<TMessage>;
@@ -186,6 +193,7 @@ export type RealtimeClientOptions<TMessage = unknown> = Readonly<{
   scheduler?: RealtimeScheduler;
   connectTimeoutMs?: number;
   reconnect?: ReconnectOptions;
+  /** Fallback when reconnect.jitter.random is undefined. */
   random?: () => number;
   logger?: RealtimeLogger;
 }>;
@@ -193,12 +201,3 @@ export type RealtimeClientOptions<TMessage = unknown> = Readonly<{
 export declare function createRealtimeClient<TMessage = unknown>(
   options: RealtimeClientOptions<TMessage>,
 ): RealtimeClient<TMessage>;
-export declare function createRetry(
-  options?: Readonly<{
-    initialDelayMs?: number;
-    maxDelayMs?: number;
-    factor?: number;
-    random?: () => number;
-    scheduler?: RealtimeScheduler;
-  }>,
-): RealtimeRetry;
