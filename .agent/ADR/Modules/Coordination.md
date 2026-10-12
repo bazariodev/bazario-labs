@@ -378,10 +378,11 @@ package implementation must prove the example runs both directly and through the
   grouping is a delivery choice, with the acknowledged cost of a shared version/release boundary.
   Split if actual consumers or independent release needs justify it.
 - **Keep backoff scheduling inside Realtime.** Rejected: it would tie timer and delay mechanics to
-  one consumer. Coordination provides the small reusable operation; Realtime retains attempts and
-  retry policy.
-- **Extract the backoff operation as `fsm-retry`.** Deferred: that package can build a declarative
-  retry policy on `createBackoffScheduler`. The one-shot utility does not need FSM policy or state.
+  one consumer. The roadmap names `fsm-retry` as a planned second consumer. Coordination provides
+  the small reusable operation; Realtime retains attempts and retry policy.
+- **Put the backoff operation in `fsm-retry`.** Deferred: that planned package can build a
+  declarative retry policy on `createBackoffScheduler`. The one-shot utility does not need FSM
+  policy or state.
 - **Create a separate backoff package.** Rejected for this release: the utility has one current
   runtime consumer and no independent release need. A separate package would add a release boundary
   for the timer provider and one-callback scheduler.

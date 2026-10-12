@@ -1,6 +1,6 @@
 # ADR: FSM Inspect Module
 
-- Status: Proposed
+- Status: Accepted
 - Date: 2026-07-05
 
 ## Context

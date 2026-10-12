@@ -937,13 +937,14 @@ if (!result.ok && result.error.kind === 'http' && result.error.status === 404) {
 The endpoint is a valid TanStack Query `queryFn` body, but `@bazariodev/api` does not import or
 wrap TanStack Query.
 
-This module is distinct from planned repository packages:
+This module is distinct from the following repository packages and proposals:
 
-- `@bazariodev/transport` — one-attempt duplex transport contract and platform adapters
-- `@bazariodev/realtime` — long-lived logical connection lifecycle and validated message channel
-- `@bazariodev/rpc` — correlated request/response messages over that realtime channel
-- `@bazariodev/auth-session` — application session state and interactive recovery
-- `@bazariodev/api` — bounded HTTP operation declarations over a request adapter
+- `@bazariodev/transport` (published) — one-attempt duplex transport contract and platform adapters
+- `@bazariodev/realtime` (implemented, release pending) — logical connection lifecycle over opaque messages
+- `@bazariodev/rpc` (implemented, release pending) — correlated request/response messages over realtime message and snapshot subscriptions
+- `@bazariodev/auth-session` (planned) — application session state and interactive recovery
+
+`@bazariodev/api` is the proposed HTTP operation package described by this ADR.
 
 `@bazariodev/api` does not reuse the realtime `Transport` port: an HTTP request/response operation and
 a long-lived ordered duplex attempt have different lifecycle, cancellation, metadata, and streaming

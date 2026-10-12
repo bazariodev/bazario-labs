@@ -21,6 +21,11 @@ This file captures implementation guidance for agents and contributors working i
 - Every package includes a `README.md`; see Package READMEs below.
 - Keep package-specific docs in the package directory when needed.
 
+## Documentation and Code Comments
+
+- Use only ASD-STE100 Simplified Technical English (STE) for all documentation and code comments.
+- Follow the ASD-STE100 writing rules and approved vocabulary when you write or change this text.
+
 ## Package READMEs
 
 npm shows each package's README on its own page, and npm readers may not be able to open repository
@@ -44,7 +49,7 @@ files. Every package README must stand on its own.
 
 - Use Vitest for unit tests.
 - Place test files in a `__tests__` folder for each package or module area.
-- Name new behavioral test files `*.test.js`; existing TypeScript tests may remain unchanged.
+- Name behavioral test files `*.test.js`.
 - Test public interfaces and observable behavior only, never implementation details or private state.
 - TypeScript consumer examples may verify public declarations, including rejected inputs.
 
@@ -52,7 +57,7 @@ files. Every package README must stand on its own.
 
 - Use strict TypeScript settings for public declarations and consumer-interface tests.
 - Do not add internal TypeScript types or JSDoc type annotations to new JavaScript implementations.
-- Existing TypeScript packages may remain unchanged; avoid `any` in their code and public interfaces.
+- Avoid `any` in code and public interfaces.
 - Target modern JavaScript with `ES2022`.
 - Use `NodeNext` module settings.
 - Build packages with `tsup` and ship both ESM and CommonJS outputs.

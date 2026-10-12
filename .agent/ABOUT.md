@@ -2,7 +2,7 @@
 
 Bazario Labs is a pnpm workspace for JavaScript SDKs with TypeScript declarations, and developer tooling, aimed at the UCaaS domain. The repository is positioned around realtime communications use cases such as SIP signaling, chat, telephony, and call-flow orchestration.
 
-This workspace currently contains eleven packages:
+This workspace currently contains thirteen packages:
 
 - `@bazariodev/fsm`: a lightweight, configurable finite state machine library for frontend runtimes, realtime clients, and telephony workflows.
 - `@bazariodev/fsm-effects`: a state-entry effects runner around `@bazariodev/fsm` with `AbortSignal` cancellation, cleanup, and a re-entrancy-safe guarded `send`.
@@ -13,8 +13,11 @@ This workspace currently contains eleven packages:
 - `@bazariodev/fsm-inspect`: dev-time transition timelines, logger capture, source recording, and Mermaid export.
 - `@bazariodev/transport`: shared one-attempt transport contract and WebSocket, streaming HTTP, and WebTransport adapters with local write admission and disposal.
 - `@bazariodev/idle-watchdog`: dependency-free one-shot inactivity timer with explicit arming, idle subscriptions, cancellation, and disposal.
-- `@bazariodev/keepalive`: liveness orchestration over two idle watchdogs, with an injected abortable promise probe and one terminal failure notification.
-- `@bazariodev/coordination`: FIFO storage, serial task executors, and typed event subscriptions.
+- `@bazariodev/keepalive`: abortable promise probes with idle and response deadlines.
+- `@bazariodev/coordination`: FIFO storage, serial task executors, typed event subscriptions,
+  bounded jitter, a default timer provider, and backoff callback scheduling.
+- `@bazariodev/realtime`: injected connection lifecycle and recovery over opaque messages; JSON is an opt-in transport codec.
+- `@bazariodev/rpc`: flat request/result/error frames over RealtimeClient's message and snapshot subscriptions.
 
 ## Project Scope
 
@@ -28,12 +31,12 @@ The goal of the repository is to provide reusable SDK building blocks for commun
 
 ## Tech Stack
 
-- Language: plain JavaScript for new implementations; TypeScript for public declarations and the existing FSM family
+- Language: plain JavaScript implementations with TypeScript public declarations
 - Runtime target: Node.js 22+
 - Package manager: pnpm
 - Workspace model: pnpm monorepo
 - Module output: ESM and CommonJS
-- Type output: bundled `.d.ts` declarations
+- Type output: copied `.d.ts` declarations
 - Compiler target: ES2022
 - TypeScript module mode: NodeNext
 
@@ -56,8 +59,11 @@ The goal of the repository is to provide reusable SDK building blocks for commun
 - `packages/fsm-inspect`: dev-time FSM timeline, logging, recording, and diagram helpers
 - `packages/transport`: shared transport declarations and plain JavaScript WebSocket, HTTP, and WebTransport adapters
 - `packages/idle-watchdog`: plain JavaScript inactivity timer with public declarations and manual-scheduler contract tests
-- `packages/keepalive`: plain JavaScript liveness orchestration over idle-watchdog, with public declarations and manual-scheduler contract tests
-- `packages/coordination`: plain JavaScript FIFO Queue, SyncExecutor, AsyncExecutor, and Emitter with public declarations
+- `packages/keepalive`: abortable generic probes with idle and response deadlines, with public declarations and contract tests
+- `packages/coordination`: plain JavaScript FIFO Queue, SyncExecutor, AsyncExecutor, Emitter,
+  createJitter, defaultScheduler, and createBackoffScheduler with public declarations
+- `packages/rpc`: flat request/result/error frames, bounded correlation, notifications, and correlated probes over RealtimeClient subscriptions
+- `packages/realtime`: plain JavaScript logical realtime client with opaque messages, an optional JSON codec, and transport-stub tests
 - `examples/coordination`: private workspace example for the coordination primitives
 - `packages/*/src`: source code and types; `packages/*/src/__tests__`: package tests
 - `docs`: contributor-facing architecture and responsibility guides
@@ -102,9 +108,12 @@ The `@bazariodev/fsm` package is intentionally small and dependency-free. It shi
 - Output targets modern JavaScript (`ES2022`).
 - The package is published as side-effect free.
 - Biome is the single formatter and linter.
-- Behavioral tests live under `src/**/__tests__/**/*.test.js` for new JavaScript packages; existing packages use `.test.ts`.
-- Types describe public interfaces only in new packages; implementation details remain plain JavaScript.
+- Behavioral tests live under `src/**/__tests__/**/*.test.js`.
+- Types describe public interfaces only; implementation details remain plain JavaScript.
 
 ## Summary
 
-This repository is a typed SDK workspace for UCaaS-related building blocks. It contains the FSM family, transport adapters, an idle watchdog, keepalive probes, and coordination primitives, with tooling for building, testing, linting, and publishing packages.
+This repository is a typed SDK workspace for UCaaS-related building blocks. It contains the FSM
+family, transport adapters, an idle watchdog, Keepalive, coordination primitives (including bounded
+jitter, timer operations, and backoff scheduling), RealtimeClient, and RpcClient. The workspace has
+build, test, lint, and release tooling.

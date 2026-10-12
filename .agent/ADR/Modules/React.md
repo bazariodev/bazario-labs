@@ -23,7 +23,9 @@ We will build `@bazariodev/fsm-react` as a thin binding layer over the public `s
 import type { FsmSubscribable } from '@bazariodev/fsm';
 ```
 
-`Fsm`, `FsmHierarchy`, and hierarchy node handles all satisfy this shape today without modification, and every future domain module that follows the workspace observation idiom (`realtime`, `call`, …) binds for free. The port — not `FsmCore` — is the UI-binding contract.
+`Fsm`, `FsmHierarchy`, hierarchy node handles, and the implemented `RealtimeClient` satisfy
+this shape without modification. Future domain modules that use the same observation contract
+can use these bindings. The structural port is the UI binding contract.
 
 v1 ships three hooks: `useFsmSnapshot` (subscribe), `useFsmSelector` (derived slice with equality bail-out), and `useFsm` (component-owned machine with StrictMode-safe attach/teardown lifecycle). During the R1 freeze, the structural source port moved into core and this package re-exports it for compatibility.
 
@@ -121,7 +123,7 @@ Rules:
 - The dead-generation render happens before the replacement commits, so `snapshot` must stay readable on dead sources. Both shipped sources satisfy this: the core has no stop, and a stopped hierarchy retains its last composed snapshot.
 - `create`/`attach`/`teardown` are read through one latest-ref at effect time. The ref is updated by an effect declared before the ownership effect, never during render: a render React discards (a suspended transition) must not replace the callbacks the committed machine's cleanup will run, and the declaration order makes the ownership setup see the committed values; changing their identity between renders does not restart the lifecycle.
 - Consequence to document loudly in the README: with `teardown`, StrictMode dev shows a brief reset to the machine's initial state after the probe (fresh instance). This is dev-only and is the price of honest teardown; machines that must not reset belong outside component ownership (module scope or a parent), consumed via the subscription hooks.
-- machines that own resources transitively (an `FsmHierarchy`, a future `RealtimeClient`) pass `teardown: (m) => m.stop()` explicitly — decision 4, no auto-detection
+- machines that own resources transitively (an `FsmHierarchy` or the implemented `RealtimeClient`) pass `teardown: (m) => m.stop()` explicitly — decision 4, no auto-detection
 
 ## SSR and RSC
 
