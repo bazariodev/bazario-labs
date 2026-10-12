@@ -1,6 +1,6 @@
 {
   "name": "@bazariodev/rpc",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "description": "Bounded request/response correlation and notifications over an injected realtime message channel.",
   "license": "MIT",
   "author": "Bazario",

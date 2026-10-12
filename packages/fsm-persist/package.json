@@ -1,6 +1,6 @@
 {
   "name": "@bazariodev/fsm-persist",
-  "version": "1.1.1",
+  "version": "1.1.2",
   "description": "Persistence helpers for @bazariodev/fsm snapshots with write-through storage and rehydrate-by-construction restore.",
   "license": "MIT",
   "author": "Bazario",

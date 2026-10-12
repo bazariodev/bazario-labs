@@ -1,5 +1,11 @@
 # @bazariodev/fsm-react
 
+## 1.1.2
+
+### Patch Changes
+
+- Build the JavaScript package with the shared Rollup script. Preserve ESM and CommonJS exports, source maps, and public declaration files. Keep the `use client` banner in both outputs. Remove the unused development dependencies on `@types/react` and `@types/react-dom`.
+
 ## 1.1.1
 
 ### Patch Changes

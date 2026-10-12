@@ -1,5 +1,18 @@
 # @bazariodev/keepalive
 
+## 0.2.0
+
+### Minor Changes
+
+- c54ffd8: Keep the probe-only Keepalive contract and allow `idleMs` to be a duration function for bounded jitter. The function is called for each idle window. A probe deadline remains fixed, and activity cannot extend an active probe. Keepalive stops on failure or `stop()`, aborts active work, and ignores late promise results.
+
+### Patch Changes
+
+- Build the JavaScript package with the shared Rollup script. Preserve ESM and CommonJS exports, source maps, and public declaration files.
+- Updated dependencies [c54ffd8]
+- Updated dependencies
+  - @bazariodev/idle-watchdog@0.2.0
+
 ## 0.1.1
 
 ### Patch Changes

@@ -1,5 +1,12 @@
 # @bazariodev/transport
 
+## 0.2.2
+
+### Patch Changes
+
+- Build the JavaScript package with the shared Rollup script. Preserve ESM and CommonJS exports, source maps, and public declaration files.
+- 0546fc5: Prevent a WebSocket from starting after URL resolution or startup logging disposes its adapter. Close sockets returned after constructor re-entry, and suppress stale open or error callbacks when logging disposes the adapter. If a WebSocket error arrives while its `readyState` is `CLOSING` or `CLOSED`, report the diagnostic and then one unclean terminal close when the adapter still owns the socket. Do not wait for a native close event.
+
 ## 0.2.1
 
 ### Patch Changes

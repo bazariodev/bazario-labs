@@ -1,5 +1,11 @@
 # @bazariodev/fsm-inspect
 
+## 1.1.2
+
+### Patch Changes
+
+- Build the JavaScript package with the shared Rollup script. Preserve ESM and CommonJS exports, source maps, and public declaration files.
+
 ## 1.1.1
 
 ### Patch Changes

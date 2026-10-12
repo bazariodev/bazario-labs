@@ -1,5 +1,11 @@
 # @bazariodev/fsm-hierarchy
 
+## 2.0.1
+
+### Patch Changes
+
+- Build the JavaScript package with the shared Rollup script. Preserve ESM and CommonJS exports, source maps, and public declaration files. Remove the unused development dependency on `@bazariodev/fsm-effects`.
+
 ## 2.0.0
 
 ### Major Changes

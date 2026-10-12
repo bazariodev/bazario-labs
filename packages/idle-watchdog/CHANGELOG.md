@@ -1,5 +1,17 @@
 # @bazariodev/idle-watchdog
 
+## 0.2.0
+
+### Minor Changes
+
+- c54ffd8: Allow `idleMs` to be a function returning a fresh positive integer duration for each arm. Validate
+  each result before scheduling, preserve cancellation during a draw, and propagate invalid or
+  throwing draws to the caller without leaving a timer armed. Fixed numeric durations remain supported.
+
+### Patch Changes
+
+- Build the JavaScript package with the shared Rollup script. Preserve ESM and CommonJS exports, source maps, and public declaration files.
+
 ## 0.1.1
 
 ### Patch Changes

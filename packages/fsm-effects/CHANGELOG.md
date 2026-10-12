@@ -1,5 +1,11 @@
 # @bazariodev/fsm-effects
 
+## 2.0.2
+
+### Patch Changes
+
+- Build the JavaScript package with the shared Rollup script. Preserve ESM and CommonJS exports, source maps, and public declaration files.
+
 ## 2.0.1
 
 ### Patch Changes

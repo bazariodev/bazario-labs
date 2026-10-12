@@ -1,6 +1,6 @@
 {
   "name": "@bazariodev/fsm-react",
-  "version": "1.1.1",
+  "version": "1.1.2",
   "description": "React bindings for @bazariodev/fsm sources with useSyncExternalStore subscriptions and selector bail-outs.",
   "license": "MIT",
   "author": "Bazario",
