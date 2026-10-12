@@ -2,5 +2,6 @@
 '@bazariodev/coordination': minor
 ---
 
-Add a stateless default timer provider and an independently cancellable backoff scheduler with
-configurable ratio jitter. The caller counts attempts and decides whether to retry.
+Add `defaultScheduler` and `createBackoffScheduler` for stateless timer access and independently
+cancellable backoff callbacks with configurable ratio jitter. The caller counts attempts and
+decides whether to retry.

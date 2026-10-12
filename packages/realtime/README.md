@@ -122,12 +122,13 @@ and belong to the client lifecycle. The default jitter range is `[0, 1)`. Set `r
 function takes precedence over top-level `random`; when it is omitted, the top-level function is
 used. A custom retry driver or `retry: null` does not validate or use default retry options. The
 factory shares one timer provider with the connection deadline, default retry driver, and
-configured default Keepalive. Direct `/core` construction keeps its native timer fallback, and
-standalone IdleWatchdog stays independent of coordination.
+configured default Keepalive. Direct `/core` construction keeps its native timer fallback.
 
 To inject a timer provider and set jitter:
 
 ```js
+import { createRealtimeClient } from '@bazariodev/realtime';
+
 const client = createRealtimeClient({
   createTransport,
   scheduler: customScheduler,
@@ -156,9 +157,6 @@ Only selected defaults validate their own options. A custom transport does not n
 | `stop()` / `[Symbol.dispose]()` | Stop permanently and release owned resources. |
 
 The transport `onError` callback is diagnostic. It reports an error but does not retire the attempt. The transport `onClose` callback ends the attempt and can start recovery. A failed start, connect timeout, or monitor failure also ends the attempt. `RealtimeClient.onError` reports diagnostics and attempt failure details. A failed local send reports an error and returns `false` without retiring a usable connection. RPC observes the same final stopped snapshot as other client subscribers.
-
-Applications that used realtime's `createRetry` helper must import `createBackoffScheduler` from
-`@bazariodev/coordination`. The application still owns attempt counting and reset policy.
 
 ## Errors
 

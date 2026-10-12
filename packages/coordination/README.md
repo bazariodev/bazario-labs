@@ -236,8 +236,11 @@ ignores its signal may still fulfill after stop.
 | --- | --- |
 | Invalid jitter bounds / random result | Throws `RangeError` at construction / draw respectively. |
 | Non-function jitter random source | Throws `TypeError` at construction. |
-| Invalid backoff delay, factor, ratio, or random result | Throws `RangeError` during construction / scheduling. |
-| Invalid timer provider or random source | Throws `TypeError` during construction. |
+| Invalid backoff delay, factor, or ratio | Throws `RangeError` at construction. |
+| Invalid backoff random result or attempt | Throws `RangeError` during `schedule()`. |
+| Invalid timer provider or random source | Throws `TypeError` at construction. |
+| Backoff jitter is not `false` or an options object | Throws `TypeError` at construction. |
+| Backoff callback is not a function | Throws `TypeError` during `schedule()`. |
 | Sync task throws | Pending drain is cleared; the same error is thrown from the outer enqueue. |
 | Async task throws or rejects | That submission rejects with the original error; draining continues. |
 | Submit after SyncExecutor stops | Throws a `DOMException` named `AbortError`. |

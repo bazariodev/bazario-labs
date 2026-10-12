@@ -8,8 +8,6 @@ Release attempt message subscriptions even if monitor construction fails. Limit 
 
 Keep transport diagnostics separate from terminal attempt close. A transport `onError` reports a diagnostic and leaves the current attempt active; `onClose`, failed start, timeout, or monitor failure ends the attempt and allows recovery. The client reports terminal close details through its public `onError` event.
 
-The default retry driver now uses coordination's `createBackoffScheduler`. Realtime keeps the
-top-level `random` option as its fallback. `reconnect.jitter` accepts `false` or ratio settings;
-an explicit nested random function takes precedence, and disabled jitter makes no random draw.
-Applications that used realtime's `createRetry` helper must import `createBackoffScheduler` from
-`@bazariodev/coordination`.
+The default retry driver uses coordination's `createBackoffScheduler`. The top-level `random`
+option supplies its fallback source. `reconnect.jitter` accepts `false` or ratio settings; an explicit
+nested random function takes precedence, and disabled jitter makes no random draw.

@@ -57,14 +57,16 @@ utilities do not belong here.
 
 The scope is local, in-process coordination. Distributed locks, leases, cross-tab leadership, and
 protocol sequencing require separate designs. New exports require their own use case and design
-review; the package description alone is not permission to accumulate scheduling features.
+review. The reviewed backoff export is limited to scheduling one callback per timer. It does not
+add a queue or decide whether a retry is allowed. This exception does not admit advanced scheduling.
 
 Implement runtime code in plain JavaScript, with public TypeScript declarations only. Follow the
 workspace's ESM/CommonJS output and matching `.d.ts`/`.d.cts` declarations. Keep the package free of
 runtime dependencies on other Bazario packages or third-party libraries.
 
-The first public release is `1.0.0`. Treat all four public primitives as stable from that release:
-incompatible API changes require a major version, with release notes and migration guidance.
+The first public release is `1.0.0`. Treat its four public primitives as stable from that release.
+The additive exports planned for `1.1.0` are also stable within the `1.x` line. Incompatible API
+changes require a major version, with release notes and migration guidance.
 Real-consumer use across normal, failure, and disposal paths remains valuable evidence; record it
 in the adoption table below, but it is not a prerequisite for the initial stable release.
 
@@ -79,6 +81,9 @@ failure, and disposal paths. Planned integrations do not count as stability evid
 | `Queue` | None committed | None yet | No |
 | `SyncExecutor` | None committed | None yet | No |
 | `AsyncExecutor` | None committed | None yet | No |
+| `createJitter` | No runtime adopter | Coordination contract tests | No; tests only |
+| `defaultScheduler` | [Realtime factory](../../../packages/realtime/src/realtime-factory.js), implemented, release pending | Coordination tests verify current-global forwarding; realtime tests cover native timer behavior | Yes, in workspace |
+| `createBackoffScheduler` | [Realtime factory](../../../packages/realtime/src/realtime-factory.js), implemented, release pending | Backoff and factory tests cover delay policy, injection, cancellation, and failure | Yes, in workspace |
 
 ## Ownership and composition
 
@@ -270,9 +275,11 @@ The initial release covers FIFO storage, synchronous draining, serial asynchrono
 delivery, deterministic failure behavior, unsubscribe ownership, and terminal executor/emitter
 disposal.
 
-Outside this decision: advanced scheduling, persistence/replay, reactive streams, framework
-bindings, and distributed or cross-tab coordination. Caller-controlled per-task cancellation and
-deadlines are deferred. These exclusions are not promises of later exports in this package.
+Outside this decision: advanced scheduling such as cron, priority queues, and persistent jobs;
+persistence/replay, reactive streams, framework bindings, and distributed or cross-tab coordination.
+Cancellation and deadlines for individual executor submissions remain deferred. The backoff
+addendum permits cancellation of each scheduled callback without changing executor contracts.
+These exclusions are not promises of later exports in this package.
 
 ## Validation
 
@@ -295,6 +302,10 @@ Test observable behavior and public declarations rather than private queue repre
 - Emitter: registration order, listener snapshots, nested emission order, duplicate ownership,
   stale unsubscribe safety, logger metadata, failure isolation, no replay, ordinary `error` events,
   stop during nested delivery, repeated disposal, and inert post-stop emit/on/unsubscribe.
+- Backoff: capped exponential delay, ratio jitter, disabled/equal-ratio draw behavior, provider
+  forwarding, independent cancellation, asynchronous zero delay, invalid options, and callback
+  reentry. Cover accepted bounds, exact error identity, and random calls without a receiver.
+  Verify `defaultScheduler` forwards to the current global timer functions.
 - Types: queue item types, inferred async task results, event-name/payload relationships, and
   unsubscribe signatures through ESM and CommonJS consumer imports. Cover payload-free events,
   required payloads, interface and type-alias maps without index signatures (including symbol keys),
@@ -366,6 +377,14 @@ package implementation must prove the example runs both directly and through the
   imported through one side-effect-free package. Small packages are valid in this workspace; this
   grouping is a delivery choice, with the acknowledged cost of a shared version/release boundary.
   Split if actual consumers or independent release needs justify it.
+- **Keep backoff scheduling inside Realtime.** Rejected: it would tie timer and delay mechanics to
+  one consumer. Coordination provides the small reusable operation; Realtime retains attempts and
+  retry policy.
+- **Extract the backoff operation as `fsm-retry`.** Deferred: that package can build a declarative
+  retry policy on `createBackoffScheduler`. The one-shot utility does not need FSM policy or state.
+- **Create a separate backoff package.** Rejected for this release: the utility has one current
+  runtime consumer and no independent release need. A separate package would add a release boundary
+  for the timer provider and one-callback scheduler.
 - **Emitter-only scope; remove public Queue and SyncExecutor.** Rejected for this plan: standalone
   storage and both execution modes are requested SDK capabilities. Lack of a current production
   adopter is documented as a risk; it does not make their separation invalid. Build the emitter
@@ -402,16 +421,21 @@ that draws uniformly distributed integer milliseconds between inclusive bounds. 
 integers in `[1, 2_147_483_647]`; injected randomness must yield a finite value in `[0, 1)`.
 Rejecting zero at construction keeps every draw compatible with the watchdog's positive idle durations.
 Equal bounds skip randomness. Construction draws nothing. The helper owns no timers, retries, or
-lifecycle, so it fits coordination without becoming another scheduler.
+lifecycle. It remains a timer-free duration helper.
 
-The concrete consumer is Keepalive's idle cadence: inject the draw function as `idleMs` through
-RealtimeClient or directly into Keepalive. IdleWatchdog performs and validates each draw when armed.
-A pending response retains its fixed deadline. The application supplies the dependency through DI;
-Keepalive and IdleWatchdog do not acquire a coordination dependency. Fixed timing remains default.
+`createJitter` has no runtime adopter. Its public contract tests cover its bounds and draws. An
+application can supply its returned duration function as Keepalive's `idleMs`; that is a possible
+composition, not a current consumer. IdleWatchdog validates each duration when it arms. A pending
+response retains its fixed deadline. Keepalive and IdleWatchdog do not acquire a coordination
+dependency. Fixed timing remains the default.
 
 RealtimeClient and RpcClient now use private Emitters in the implemented workspace packages.
 
 ## Addendum: shared backoff scheduling (2026-10-12)
+
+Realtime's retry driver needs delay calculation and cancellable callback scheduling. These
+operations do not need a transport or FSM. The reviewed extraction puts these reusable mechanics
+in coordination while the realtime lifecycle owns failure counts and retry decisions.
 
 Coordination now exports `defaultScheduler` and `createBackoffScheduler(options)`. The default
 provider forwards timer calls to the current platform globals and stores no jobs. Its
@@ -432,6 +456,7 @@ default Keepalive. Its top-level `random` remains the fallback for default backo
 and `retry: null` do not use the default backoff options. Direct RealtimeClient core construction
 keeps its native timer fallback. Standalone IdleWatchdog remains independent of coordination.
 
-Applications that imported the removed Realtime `createRetry` helper must import
-`createBackoffScheduler` from coordination. The new helper is an explicit timer and delay
-mechanism; it does not count attempts or decide whether a retry is allowed.
+Realtime's unreleased workspace `createRetry` helper moved to coordination under the name
+`createBackoffScheduler`. This describes an internal workspace change, not a migration from a
+published API. The helper schedules one callback; it does not count attempts or decide whether a
+retry is allowed.

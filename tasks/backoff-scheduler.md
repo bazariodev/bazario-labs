@@ -112,3 +112,31 @@ saved baseline. No Ringotel file or test was changed.
 
 The final documentation commit includes the examples, decision records, pending
 changesets, and this verification record. No commits were pushed.
+
+## Documentation review repairs
+
+Clarified that `createJitter` has contract-test coverage but no runtime adopter, while the
+Realtime factory uses `defaultScheduler` and `createBackoffScheduler`. The ADR now limits this
+addition to one-shot callback scheduling and identifies `fsm-retry` as a future policy built on
+the shared scheduler. Updated the roadmap, package summaries, error table, release notes, and
+standalone realtime example. The validation below includes these repairs.
+
+## Review Validation (2026-10-12)
+
+All ten attached findings were checked against the current source and tests. The code and
+documentation repairs are complete. The optional removal of top-level realtime `random` was
+not applied: this option is part of the accepted contract. Its inheritance now uses one condition.
+
+Added coverage for omitted jitter, each timer operation, invalid callbacks and jitter options,
+accepted delay bounds, random calls without a receiver, and exact error identity. The native
+timer test name now states its observed behavior. All 13 targeted mutations caused test failures
+in temporary source copies; the workspace code was not changed by those checks.
+
+`pnpm health` passed with 588 tests, package builds, declarations, and lint. The repaired README
+example compiles, local documentation links resolve, and Changesets status passes. The log is at
+`/private/tmp/bazario-scheduler-review-fixes-health.log`.
+
+The source and test repairs are saved in local commit `370d30a`. Documentation repairs are saved
+separately. The targeted ABOUT updates remain with that file's existing uncommitted document
+pass. The other four pre-existing documentation edits match the saved baseline. No versions
+were changed and no package was published.
