@@ -68,6 +68,25 @@ it('uses the top-level random fallback when nested randomness is undefined', () 
   client.stop();
 });
 
+it('uses the top-level random fallback when reconnect jitter is omitted', () => {
+  const scheduler = createScheduler();
+  const transport = new StubTransport();
+  const random = vi.fn(() => 0.5);
+  const client = createRealtimeClient({
+    createTransport: () => transport,
+    scheduler,
+    reconnect: { initialDelayMs: 100, maxDelayMs: 300 },
+    random,
+  });
+
+  client.connect();
+  transport.close();
+
+  expect(scheduler.tasks.find(({ delayMs }) => delayMs === 50)).toBeDefined();
+  expect(random).toHaveBeenCalledOnce();
+  client.stop();
+});
+
 it('prefers nested randomness over the top-level fallback', () => {
   const scheduler = createScheduler();
   const transport = new StubTransport();
@@ -134,7 +153,7 @@ it('does not validate reconnect settings when retry is supplied or omitted', () 
   }
 });
 
-it('uses the shared default scheduler for timeout, retry, and Keepalive', async () => {
+it('default timers drive timeout, retry, and Keepalive', async () => {
   vi.useFakeTimers();
   const transports = [];
   const probe = vi.fn(() => new Promise(() => {}));

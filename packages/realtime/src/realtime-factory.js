@@ -29,20 +29,18 @@ export function createRealtimeClient(options = {}) {
 
   let retryDriver = retry;
   if (retry === undefined) {
-    const retryOptions = { ...reconnect, scheduler };
     const jitter = reconnect.jitter;
-    if (random !== undefined && jitter === undefined) {
-      retryOptions.jitter = { random };
-    } else if (
+    const inheritRandom =
       random !== undefined &&
-      jitter !== false &&
-      jitter !== null &&
-      typeof jitter === 'object' &&
-      jitter.random === undefined
-    ) {
-      retryOptions.jitter = { ...jitter, random };
-    }
-    retryDriver = createBackoffScheduler(retryOptions);
+      (jitter === undefined ||
+        (jitter !== null &&
+          typeof jitter === 'object' &&
+          jitter.random === undefined));
+    retryDriver = createBackoffScheduler({
+      ...reconnect,
+      scheduler,
+      jitter: inheritRandom ? { ...jitter, random } : jitter,
+    });
   }
   const monitorFactory =
     createKeepalive === undefined

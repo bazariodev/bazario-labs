@@ -21,6 +21,14 @@ function makeTimer() {
   };
 }
 
+function thrownError(callback) {
+  try {
+    callback();
+  } catch (error) {
+    return error;
+  }
+}
+
 describe('createBackoffScheduler', () => {
   it('does not schedule work during construction', () => {
     const timer = makeTimer();
@@ -141,6 +149,23 @@ describe('createBackoffScheduler', () => {
     expect(timer.jobs[0].delayMs).toBe(50);
   });
 
+  it('calls the random source without a receiver', () => {
+    const timer = makeTimer();
+    let receiver = 'not called';
+    const random = function () {
+      receiver = this;
+      return 0.5;
+    };
+    const backoff = createBackoffScheduler({
+      scheduler: timer,
+      jitter: { random },
+    });
+
+    backoff.schedule(1, () => {});
+
+    expect(receiver).toBeUndefined();
+  });
+
   it('keeps jobs independent and makes cancellation idempotent', () => {
     const timer = makeTimer();
     const backoff = createBackoffScheduler({ scheduler: timer });
@@ -208,11 +233,15 @@ describe('createBackoffScheduler', () => {
       },
     });
 
-    expect(() => randomFailure.schedule(1, () => {})).toThrow(randomError);
-    expect(() => timerFailure.schedule(1, () => {})).toThrow(timerError);
+    expect(thrownError(() => randomFailure.schedule(1, () => {}))).toBe(
+      randomError,
+    );
+    expect(thrownError(() => timerFailure.schedule(1, () => {}))).toBe(
+      timerError,
+    );
     const callback = vi.fn();
     const cancel = clearFailure.schedule(1, callback);
-    expect(cancel).toThrow(clearError);
+    expect(thrownError(cancel)).toBe(clearError);
     scheduledCallback();
     expect(callback).not.toHaveBeenCalled();
     expect(() => cancel()).not.toThrow();
@@ -260,6 +289,12 @@ describe('createBackoffScheduler', () => {
     ).toThrow(RangeError);
     expect(() => createBackoffScheduler({ scheduler: {} })).toThrow(TypeError);
     expect(() =>
+      createBackoffScheduler({ scheduler: { setTimeout() {} } }),
+    ).toThrow(TypeError);
+    expect(() =>
+      createBackoffScheduler({ scheduler: { clearTimeout() {} } }),
+    ).toThrow(TypeError);
+    expect(() =>
       createBackoffScheduler({ jitter: { minRatio: 2, maxRatio: 1 } }),
     ).toThrow(RangeError);
     expect(() => createBackoffScheduler({ jitter: { minRatio: -1 } })).toThrow(
@@ -271,9 +306,15 @@ describe('createBackoffScheduler', () => {
       }),
     ).toThrow(RangeError);
     expect(() => createBackoffScheduler({ jitter: null })).toThrow(TypeError);
+    expect(() => createBackoffScheduler({ jitter: true })).toThrow(TypeError);
     expect(() => createBackoffScheduler({ jitter: { random: 1 } })).toThrow(
       TypeError,
     );
+    expect(() =>
+      createBackoffScheduler({
+        jitter: { maxRatio: Number.POSITIVE_INFINITY, random: () => 0 },
+      }),
+    ).toThrow(RangeError);
 
     for (const value of [Number.NaN, -0.1, 1, Number.POSITIVE_INFINITY]) {
       const backoff = createBackoffScheduler({
@@ -285,5 +326,33 @@ describe('createBackoffScheduler', () => {
 
     const backoff = createBackoffScheduler({ scheduler: makeTimer() });
     expect(() => backoff.schedule(1, null)).toThrow(TypeError);
+    const timer = makeTimer();
+    const invalidCallbackBackoff = createBackoffScheduler({ scheduler: timer });
+    expect(() => invalidCallbackBackoff.schedule(1, 'x')).toThrow(TypeError);
+    expect(timer.jobs).toHaveLength(0);
+  });
+
+  it('accepts factor and timer-boundary values', () => {
+    const timer = makeTimer();
+    const backoff = createBackoffScheduler({
+      initialDelayMs: 7,
+      maxDelayMs: 7,
+      factor: 1,
+      scheduler: timer,
+      jitter: false,
+    });
+    backoff.schedule(1, () => {});
+    backoff.schedule(3, () => {});
+
+    const largestTimer = makeTimer();
+    createBackoffScheduler({
+      initialDelayMs: 2_147_483_647,
+      maxDelayMs: 2_147_483_647,
+      scheduler: largestTimer,
+      jitter: false,
+    }).schedule(1, () => {});
+
+    expect(timer.jobs.map(({ delayMs }) => delayMs)).toEqual([7, 7]);
+    expect(largestTimer.jobs[0].delayMs).toBe(2_147_483_647);
   });
 });
