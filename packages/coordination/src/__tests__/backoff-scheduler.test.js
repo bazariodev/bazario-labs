@@ -355,4 +355,21 @@ describe('createBackoffScheduler', () => {
     expect(timer.jobs.map(({ delayMs }) => delayMs)).toEqual([7, 7]);
     expect(largestTimer.jobs[0].delayMs).toBe(2_147_483_647);
   });
+
+  it('applies a configured exponential factor', () => {
+    const timer = makeTimer();
+    const backoff = createBackoffScheduler({
+      initialDelayMs: 100,
+      maxDelayMs: 10_000,
+      factor: 3,
+      scheduler: timer,
+      jitter: false,
+    });
+
+    backoff.schedule(1, () => {});
+    backoff.schedule(2, () => {});
+    backoff.schedule(3, () => {});
+
+    expect(timer.jobs.map(({ delayMs }) => delayMs)).toEqual([100, 300, 900]);
+  });
 });
