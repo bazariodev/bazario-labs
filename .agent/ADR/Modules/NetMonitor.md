@@ -153,6 +153,73 @@ The current workspace contains Bazario Labs. Test-client adoption belongs to its
 Deliver and test the SDK composition here. Do not add that application's run management, bridge,
 credentials, or retry budget.
 
+## Test-client adoption
+
+Remote commit `1447984` records a review of the published net-monitor 0.1.0,
+realtime 0.2.0, and RPC 0.1.0 APIs at SDK commit `034607d`. Its package plan is
+included here. Keep the [app review record](../../../docs/NET_MONITOR_PLAN_REVIEW.md)
+as history. The source contract above replaces the older three-state contract.
+
+The reviewed app plan pins net-monitor 0.1.0 in the test app and its npm lockfile.
+Use the published package and import its source types. Do not copy the monitor
+or use a workspace path or tarball. That plan targets the older release. A later
+move to net-monitor 0.2.0 must use the two-state contract and handle platform read
+errors. Do not treat the earlier `unknown` behavior as part of the new contract.
+
+Keep the test app's existing `SessionOwner` as its connection and recovery owner.
+It owns the promise returned by Connect, fixture authentication, typed JSON-RPC
+requests, custom IDs, heartbeat checks, test runs, and the finite retry budget.
+A move to Realtime, SDK RPC, or an FSM is a separate task. The package source
+only reports browser state. It receives no socket, retry callback, or credentials.
+
+The SDK does not require a connect/ready wire exchange. Realtime enters ready
+when transport calls `onOpen`. SDK RPC sends `{ id, method, params? }` with string
+IDs. The reviewed test server requires `jsonrpc: "2.0"`, accepts string or safe
+integer IDs, and uses a separate `{ type: "ping", id }` heartbeat with nested
+error details. A later SDK migration must account for those protocol rules.
+
+Keep `test-client/docs/BROWSER_CONNECTIVITY_PLAN.md` in the app checkout as the
+detailed consumer plan. Preserve its BC1 through BC5 requirements:
+
+- Retire an offline attempt regardless of native close-event order.
+- Keep eligible connection intent. Provide a manual stop for the current session.
+- Use one shared budget that counts admitted attempts.
+- Run fresh, bounded checks for owned test runs after readiness.
+- Make bootstrap configuration errors visible and permit recovery.
+
+Also preserve prompt rejection of an interrupted Connect, the rules for initial
+and accepted credentials, and login uncertainty only after a write is admitted.
+Keep secret redaction, stale-attempt checks, re-entry checks, and no RPC replay.
+Manual stop, unsafe authentication, removed targets, and an exhausted budget must
+prevent automatic recovery. These rules belong to the app, not the monitor.
+
+SessionOwner borrows its source. Bootstrap stops only a default monitor that it
+creates, after consumers stop. React effect replay only changes subscriptions.
+Initialize consumer fields, subscribe, then read the snapshot. A subscription can
+notify before it returns. Handle source setup errors through the app's visible
+bootstrap error state.
+
+Complete app work in this order. Use the agreed light implementer, independent
+review, and correction cycle for each step:
+
+1. Pin the published package and add an optional borrowed source to SessionOwner.
+   Test initial state, synchronous notification, and cleanup with the real monitor
+   and an injected platform.
+2. Add offline retirement and eligible online recovery under SessionOwner.
+   Preserve the budget, promise, authentication, and target rules above.
+3. Create one default monitor in bootstrap. Expose offline state, connection
+   intent, configuration errors, and a usable Disconnect control. Test owned and
+   borrowed lifetimes, StrictMode, and the absence of unrequested connections.
+4. Run browser acceptance, app type checks, lint, format checks, unit tests, build,
+   and CI checks. Update the app contract and user guide with verified behavior.
+
+Acceptance requires one eligible new attempt after offline suspension. There must
+be no duplicate attempts, listener leaks, secret exposure, or RPC replay. Confirm
+that browser network emulation changes `navigator.onLine` before reporting native
+detection. An HTTP error alone does not prove an offline state. Report app results
+separately from unrelated SDK security-workflow failures. The planning review
+does not establish current CI results or completion of app adoption.
+
 ## Required coverage
 
 Cover initial online/offline and unsupported platform state, observer attachment and resubscription,
