@@ -15,9 +15,15 @@ declare const events: Emitter<Realtime.RealtimeEventMap<unknown>>;
 declare const transport: Transport;
 declare const keepalive: Keepalive;
 const connectivity: Realtime.RealtimeConnectivitySource = {
+  getSnapshot: () => 'online',
+  subscribe: () => () => {},
+};
+const unknownSource: Realtime.RealtimeConnectivitySource = {
+  // @ts-expect-error The state type has no third value.
   getSnapshot: () => 'unknown',
   subscribe: () => () => {},
 };
+void unknownSource;
 const jsonOptions: Realtime.JsonTransportOptions = {
   maxIncomingBytes: 2_097_152,
   warn(message) {

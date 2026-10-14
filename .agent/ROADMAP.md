@@ -28,21 +28,23 @@ Shipped (current versions and release notes live in each package's `package.json
 - `@bazariodev/coordination` — FIFO storage, serial executors, typed event subscriptions, jitter, and
   caller-owned backoff scheduling. Published `1.1.0` includes the jitter and backoff exports
   (`ADR/Modules/Coordination.md`).
-- `@bazariodev/realtime` — injected connection lifecycle over opaque messages. Version `0.1.0` is
-  published; the connectivity integration awaits `0.2.0` (`ADR/Modules/RealtimeComposition.md`).
+- `@bazariodev/realtime` — injected connection lifecycle over opaque messages. Version `0.2.0` is
+  published; the two-state connectivity update awaits `0.3.0` (`ADR/Modules/RealtimeComposition.md`).
+- `@bazariodev/net-monitor` — browser online/offline state source. Version `0.1.0` is published;
+  the two-state connectivity update awaits `0.2.0` (`ADR/Modules/NetMonitor.md`).
 - `@bazariodev/rpc` — flat request and notification frames with bounded waits, cancellation, and
   correlated probes. Version `0.1.0` is published (`ADR/Modules/Rpc.md`).
 
-The npm registry confirmed these published versions and `idle-watchdog@0.2.0` on 2026-10-14.
-The prepared `net-monitor@0.1.0` and `realtime@0.2.0` versions are not published.
+The npm registry confirmed these published versions, `idle-watchdog@0.2.0`,
+`net-monitor@0.1.0`, and `realtime@0.2.0` on 2026-10-14.
 
 Review notes:
 
 - The layering thesis is proven: core → effects → delays each composed over the previous package's public seams without core changes. Domain modules below follow the same rule (ports and adapters, composition over subclassing).
 - Remaining deferred items named by ADRs: retry/backoff policy DSL (Delays ADR), parallel regions and history (Hierarchy ADR). Hierarchy composition and persistence are shipped.
-- React bindings, connectivity primitives, coordination `1.1.0`, realtime `0.1.0`, and RPC `0.1.0`
-  are shipped. Coordination's example is complete. Net-monitor and realtime connectivity integration
-  await release; signaling, media, chat, and presence are planned.
+- React bindings, connectivity primitives, coordination `1.1.0`, realtime `0.2.0`, net-monitor
+  `0.1.0`, and RPC `0.1.0` are shipped. Coordination's example is complete. The two-state
+  connectivity update awaits release; signaling, media, chat, and presence are planned.
 
 ## Next tasks — remaining R2 work
 
@@ -64,7 +66,8 @@ milestone identifiers or shipped history.
    ESM/CommonJS package contents with a dry-run pack.
 7. [x] Publish `@bazariodev/coordination@1.0.0`; exact version verified in the npm registry on 2026-10-10.
 8. [x] Implement `realtime` using one injected client and opaque messages.
-9. [ ] Release the prepared `net-monitor@0.1.0` and `realtime@0.2.0` versions.
+9. [x] Release `net-monitor@0.1.0` and `realtime@0.2.0`.
+10. [ ] Release `net-monitor@0.2.0` and `realtime@0.3.0` with the two-state connectivity contract.
    Then continue with `auth-session` and the integration demo. Build `fsm-retry` on coordination's shared
    backoff scheduler, which Realtime now uses as a runtime consumer.
 
@@ -99,10 +102,10 @@ Current ownership: [Realtime composition ADR](ADR/Modules/RealtimeComposition.md
 | `transport` | shared one-attempt contract with WebSocket, streaming HTTP (GET + POST), and reliable-stream WebTransport adapters | shipped | R2 |
 | `idle-watchdog` | re-armable one-shot inactivity timer; consumers own arming and idle-event policy | shipped | R2 |
 | `keepalive` | abortable promise probe with idle and fixed response deadlines; optional duration function for idle jitter | shipped (0.2.0) | R2 |
-| `realtime` | injected logical client over opaque messages; optional JSON codec, readiness, attempt replacement, and recovery | shipped (0.1.0); connectivity release pending (0.2.0) | R2 |
+| `realtime` | injected logical client over opaque messages; optional JSON codec, readiness, attempt replacement, and recovery | shipped (0.2.0); two-state connectivity update pending (0.3.0) | R2 |
 | `rpc` | flat request/result/error frames; private IDs, bounded waits, cancellation, notifications, and correlated probes | shipped (0.1.0) | R2 |
 | `auth-session` | token lifecycle machine (login, refresh, expiry, logout) with storage port | planned | R2 |
-| `net-monitor` | browser online/offline state source; visibility and wake detection remain out of scope | implemented, release pending | R2 |
+| `net-monitor` | browser online/offline state source; visibility and wake detection remain out of scope | shipped (0.1.0); two-state connectivity update pending (0.2.0) | R2 |
 | `scheduler-worker` | Worker-backed `Scheduler` for `fsm-delays` that survives background-tab timer throttling | backlog | post-MVP improvement |
 
 ### Layer 2 — Calling
@@ -155,7 +158,7 @@ Coordination starts at `1.0.0`: its four public primitives carry a stable API co
 first release. Track real-consumer validation of normal, failure, and disposal paths in the
 [Coordination adoption table](ADR/Modules/Coordination.md#adoption-evidence); that evidence guides
 future changes rather than gating the initial release. Additive jitter and backoff exports in
-for `1.1.0` are also stable within the `1.x` line.
+`1.1.0` are also stable within the `1.x` line.
 
 ### R1 — State Platform 1.0
 
@@ -167,7 +170,8 @@ for `1.1.0` are also stable within the `1.x` line.
 ### R2 — Connectivity
 
 - Goal: a session that survives the real internet.
-- Next: release net-monitor `0.1.0` and realtime `0.2.0`. Then build the protocol demo and verify a Ringotel backend adapter.
+- Next: release net-monitor `0.2.0` and realtime `0.3.0` with the two-state connectivity contract.
+  Then build the protocol demo and verify a Ringotel backend adapter.
 - Build: `coordination`, `transport` (shared contract and WebSocket, HTTP, WebTransport adapters), `idle-watchdog`, `keepalive`, `realtime`, `rpc`, and `auth-session`; build `fsm-retry` on coordination's `createBackoffScheduler` (Realtime is its current runtime consumer). Start `examples/server`.
 - Decision gate: keep `transport` limited to one physical attempt and keep logical lifecycle policy in `realtime`. HTTP and WebTransport share the package and a documented binary framing contract; validate deployment servers against it.
 - Exit criteria: coordination public contracts and declarations pass validation, the private `examples/coordination/` workspace package runs through `pnpm health`, and coordination is documented and released at `1.0.0`; the connectivity demo signs in, stays connected through network flaps and laptop sleep, re-authenticates silently, and shows connection state.

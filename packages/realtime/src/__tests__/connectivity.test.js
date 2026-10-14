@@ -1,8 +1,9 @@
 import { describe, expect, it, vi } from 'vitest';
 
+import { BrowserNetMonitor } from '../../../net-monitor/src/index.js';
 import { createRealtimeClient, RealtimeClient } from '../index.js';
 
-function makeConnectivity(initial = 'unknown') {
+function makeConnectivity(initial = 'online') {
   let state = initial;
   const listeners = new Set();
   return {
@@ -27,6 +28,7 @@ function makeClient({
   retry = null,
   scheduler,
   connectTimeoutMs,
+  logger,
 } = {}) {
   const attempts = [];
   const client = createRealtimeClient({
@@ -34,6 +36,7 @@ function makeClient({
     retry,
     scheduler,
     connectTimeoutMs,
+    logger,
     createTransport: () => {
       const transport = {
         handlers: null,
@@ -57,12 +60,12 @@ function makeClient({
 }
 
 describe('RealtimeClient connectivity', () => {
-  it('includes unknown connectivity fields before the first source update', () => {
+  it('includes optimistic online connectivity before the first source update', () => {
     const { client } = makeClient({ connectivity: makeConnectivity() });
     const snapshot = client.snapshot;
     expect(snapshot).toMatchObject({
       value: 'idle',
-      connectivity: 'unknown',
+      connectivity: 'online',
       suspended: false,
     });
     expect(client.snapshot).toBe(snapshot);
@@ -73,14 +76,14 @@ describe('RealtimeClient connectivity', () => {
     const connectivity = makeConnectivity('online');
     const { client } = makeClient({ connectivity });
     const initial = client.snapshot;
-    connectivity.set('unknown');
-    const unknown = client.snapshot;
-    expect(unknown.version).toBeGreaterThan(initial.version);
-    expect(client.snapshot).toBe(unknown);
-    connectivity.set('unknown');
-    expect(client.snapshot).toBe(unknown);
     connectivity.set('offline');
-    expect(client.snapshot.version).toBeGreaterThan(unknown.version);
+    const offline = client.snapshot;
+    expect(offline.version).toBeGreaterThan(initial.version);
+    expect(client.snapshot).toBe(offline);
+    connectivity.set('offline');
+    expect(client.snapshot).toBe(offline);
+    connectivity.set('online');
+    expect(client.snapshot.version).toBeGreaterThan(offline.version);
     client.stop();
   });
 
@@ -89,12 +92,12 @@ describe('RealtimeClient connectivity', () => {
     const { client } = makeClient({ connectivity });
     const later = vi.fn();
     client.subscribe((snapshot) => {
-      if (snapshot.connectivity === 'unknown') connectivity.set('offline');
+      if (snapshot.connectivity === 'offline') connectivity.set('online');
     });
     client.subscribe(later);
-    connectivity.set('unknown');
+    connectivity.set('offline');
     expect(later).toHaveBeenCalledTimes(1);
-    expect(later.mock.calls[0][0]).toMatchObject({ connectivity: 'offline' });
+    expect(later.mock.calls[0][0]).toMatchObject({ connectivity: 'online' });
     client.stop();
   });
 
@@ -177,6 +180,42 @@ describe('RealtimeClient connectivity', () => {
     client.stop();
   });
 
+  it('keeps an online backoff retry after a repeated online hint', () => {
+    const listeners = new Set();
+    const connectivity = {
+      getSnapshot: () => 'online',
+      subscribe(listener) {
+        listeners.add(listener);
+        return () => listeners.delete(listener);
+      },
+      emit(state) {
+        for (const listener of [...listeners]) listener(state);
+      },
+    };
+    const scheduled = [];
+    const retry = {
+      schedule: (_attempt, callback) => {
+        const entry = { callback, cancelled: false };
+        scheduled.push(entry);
+        return () => {
+          entry.cancelled = true;
+        };
+      },
+    };
+    const { client, attempts } = makeClient({ connectivity, retry });
+    client.connect();
+    attempts[0].handlers.onClose({ clean: false });
+    expect(client.state).toBe('backoff');
+
+    connectivity.emit('online');
+    expect(scheduled[0].cancelled).toBe(false);
+    expect(client.state).toBe('backoff');
+    scheduled[0].callback();
+    expect(attempts).toHaveLength(2);
+    expect(client.state).toBe('connecting');
+    client.stop();
+  });
+
   it('allows one recovery after a close before offline when retries are disabled', () => {
     const connectivity = makeConnectivity('online');
     const { client, attempts } = makeClient({ connectivity, retry: null });
@@ -201,59 +240,122 @@ describe('RealtimeClient connectivity', () => {
     client.stop();
   });
 
-  it('starts an attempt after a source-only update during connecting publication', () => {
-    const connectivity = makeConnectivity('unknown');
+  it('suspends when the source turns offline during connecting publication', () => {
+    const connectivity = makeConnectivity('online');
     const { client, attempts } = makeClient({ connectivity });
     const unsubscribe = client.subscribe((snapshot) => {
-      if (
-        snapshot.value === 'connecting' &&
-        snapshot.connectivity === 'unknown'
-      )
-        connectivity.set('online');
+      if (snapshot.value === 'connecting') connectivity.set('offline');
     });
     client.connect();
-    expect(attempts).toHaveLength(1);
-    expect(client.state).toBe('connecting');
+    expect(attempts).toHaveLength(0);
+    expect(client.state).toBe('idle');
+    expect(client.snapshot).toMatchObject({
+      connectivity: 'offline',
+      suspended: true,
+    });
     unsubscribe();
     client.stop();
   });
 
-  it('accelerates a nonsuspended backoff when an online hint arrives', () => {
-    const connectivity = makeConnectivity('unknown');
-    const scheduled = [];
-    const retry = {
-      schedule: (_attempt, callback) => {
-        const entry = { callback, cancelled: false };
-        scheduled.push(entry);
-        return () => {
-          entry.cancelled = true;
-        };
-      },
-    };
-    const { client, attempts } = makeClient({ connectivity, retry });
+  it('starts one attempt after offline-online reentry during connecting publication', () => {
+    const connectivity = makeConnectivity('online');
+    const { client, attempts } = makeClient({ connectivity });
+    let reentered = false;
+    const later = vi.fn();
+    client.subscribe((snapshot) => {
+      if (snapshot.value !== 'connecting' || reentered) return;
+      reentered = true;
+      connectivity.set('offline');
+      connectivity.set('online');
+    });
+    client.subscribe(later);
+
     client.connect();
-    attempts[0].handlers.onClose({ clean: false });
-    expect(client.state).toBe('backoff');
-    connectivity.set('online');
-    expect(scheduled[0].cancelled).toBe(true);
-    expect(attempts).toHaveLength(2);
+
+    expect(attempts).toHaveLength(1);
+    expect(client.state).toBe('connecting');
+    expect(client.snapshot).toMatchObject({
+      value: 'connecting',
+      connectivity: 'online',
+      suspended: false,
+    });
+    expect(later).toHaveBeenCalled();
+    expect(later.mock.calls.at(-1)[0]).toBe(client.snapshot);
     client.stop();
   });
 
-  it('keeps unknown suspended until an explicit connect, and stop is terminal', () => {
+  it('rejects invalid source callbacks without changing the snapshot', () => {
+    const listeners = new Set();
+    const connectivity = {
+      getSnapshot: () => 'online',
+      subscribe(listener) {
+        listeners.add(listener);
+        return () => listeners.delete(listener);
+      },
+      set(state) {
+        for (const listener of [...listeners]) listener(state);
+      },
+    };
+    const logger = { warn: vi.fn() };
+    const { client } = makeClient({ connectivity, logger });
+    const before = client.snapshot;
+    connectivity.set('unknown');
+    expect(client.snapshot).toBe(before);
+    expect(logger.warn).toHaveBeenCalledOnce();
+    client.stop();
+  });
+
+  it('keeps a stopped client terminal after a valid recovery hint', () => {
     const connectivity = makeConnectivity('offline');
     const { client, attempts } = makeClient({ connectivity });
     client.connect();
-    connectivity.set('unknown');
-    expect(client.snapshot).toMatchObject({ value: 'idle', suspended: true });
-    expect(attempts).toHaveLength(0);
-    client.connect();
+    connectivity.set('online');
     expect(attempts).toHaveLength(1);
     connectivity.set('offline');
     client.stop();
     connectivity.set('online');
     expect(attempts).toHaveLength(1);
     expect(client.state).toBe('stopped');
+  });
+
+  it('keeps manual disconnect from starting after online recovery', () => {
+    const connectivity = makeConnectivity('offline');
+    const { client, attempts } = makeClient({ connectivity });
+    client.connect();
+    client.disconnect();
+    connectivity.set('online');
+    expect(client.snapshot).toMatchObject({ value: 'idle', suspended: false });
+    expect(attempts).toHaveLength(0);
+    client.stop();
+  });
+
+  it('blocks transport creation when the monitor samples offline at startup', () => {
+    const connectivity = new BrowserNetMonitor({
+      platform: {
+        navigator: { onLine: false },
+        addEventListener() {},
+        removeEventListener() {},
+      },
+    });
+    const attempts = [];
+    const client = createRealtimeClient({
+      connectivity,
+      createTransport: () => {
+        attempts.push(true);
+        return { start() {}, send() {}, [Symbol.dispose]() {} };
+      },
+    });
+
+    client.connect();
+
+    expect(client.snapshot).toMatchObject({
+      value: 'idle',
+      connectivity: 'offline',
+      suspended: true,
+    });
+    expect(attempts).toHaveLength(0);
+    client.stop();
+    connectivity.stop();
   });
 
   it('borrows a shared source and releases only its own subscription on stop', () => {
@@ -314,7 +416,10 @@ describe('RealtimeClient connectivity', () => {
     expect(events.stop).toHaveBeenCalledOnce();
   });
 
-  it('rejects an invalid initial source state and releases the source and client setup', () => {
+  it.each([
+    'connected',
+    'unknown',
+  ])('rejects invalid initial source state %s and releases client setup', (state) => {
     const unsubscribeSource = vi.fn();
     const unsubscribeFsm = vi.fn();
     const events = { stop: vi.fn(), emit: vi.fn(), on: vi.fn(() => () => {}) };
@@ -331,7 +436,7 @@ describe('RealtimeClient connectivity', () => {
     };
     const source = {
       subscribe: () => unsubscribeSource,
-      getSnapshot: () => 'connected',
+      getSnapshot: () => state,
     };
     expect(
       () =>

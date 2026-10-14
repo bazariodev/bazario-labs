@@ -1,5 +1,15 @@
 # @bazariodev/realtime
 
+## 0.3.0
+
+### Minor Changes
+
+- Remove `unknown` from `ConnectivityState` and default connectivity to `online`. Custom connectivity
+  sources must return only `online` or `offline`. Update sources that previously returned `unknown`.
+
+  Remove the recovery rules for `unknown`. Offline state suspends a requested connection. Online state
+  permits recovery. Keep connection intent, retry history, manual disconnect, and terminal stop behavior.
+
 ## 0.2.0
 
 ### Minor Changes

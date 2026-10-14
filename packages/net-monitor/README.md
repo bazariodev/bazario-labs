@@ -25,9 +25,10 @@ when the application no longer needs the monitor.
 
 ## Behavior
 
-- `getSnapshot()` returns `online`, `offline`, or `unknown`.
+- `getSnapshot()` returns `online` or `offline`.
 - Without subscribers, `getSnapshot()` reads `navigator.onLine`. With subscribers, it returns the
-  last observed state. It reports `unknown` when the value is not available.
+  last observed state. It reports `online` when the value is not available or is not a boolean.
+- A startup sample of `navigator.onLine === false` reports `offline` before any event.
 - The first subscription adds browser `online` and `offline` listeners. The last unsubscribe removes
   them. A later subscription reads the platform state again.
 - Each call to `subscribe()` has its own cleanup function, including calls with the same listener.
@@ -53,7 +54,7 @@ monitor releases any listener that it already added.
 The source also implements this structural interface:
 
 ```ts
-type ConnectivityState = 'online' | 'offline' | 'unknown';
+type ConnectivityState = 'online' | 'offline';
 
 interface ConnectivitySource {
   getSnapshot(): ConnectivityState;

@@ -108,14 +108,14 @@ A matched RPC error proves that the peer answered. It does not prove authenticat
 ### Connectivity
 
 The application may pass a source with `getSnapshot()` and `subscribe()` through the `connectivity`
-option. The source reports `online`, `offline`, or `unknown`. The application creates and stops the
+option. The source reports `online` or `offline`. Realtime starts with `online` until it reads a
+source sample. The application creates and stops the
 source. Realtime releases its subscription when it stops. Realtime has no dependency on
 `@bazariodev/net-monitor`; that package is one optional source implementation.
 
-Known offline state suspends a requested connection. The client retires the attempt and enters idle
-without resetting retry history. A known online state resumes the requested connection or
-accelerates backoff. After offline, `unknown` stays suspended until `connect()` or `reconnect()` clears
-the suspension. Manual `disconnect()` clears connection intent and suspension. With `retry: null`,
+Offline state suspends a requested connection. The client retires the attempt and enters idle without
+resetting retry history. Online state resumes a requested connection. Manual `disconnect()` clears
+connection intent and suspension. With `retry: null`,
 an offline suspension allows one attempt after online. A failed recovery does not start another
 attempt until a new explicit command or another offline-to-online cycle.
 
@@ -133,7 +133,7 @@ clears retry history.
 
 - The states are `idle`, `connecting`, `ready`, `backoff`, and terminal `stopped`. Only `ready` accepts `send()` and `probeNow()`.
 - `connect()` starts from idle. `disconnect()` returns to idle, clears intent and retry history, and permits a later connect. `reconnect()` replaces the current attempt. `stop()` ends the client permanently.
-- With `connectivity`, known offline state blocks attempts and suspends requested work. A known online signal resumes it. The application owns the source lifetime; `stop()` releases only the client subscription.
+- With `connectivity`, offline state blocks attempts and suspends requested work. Online state resumes it. The application owns the source lifetime; `stop()` releases only the client subscription.
 - `onReady` reports `initial` until the client first reaches ready. Later ready events report `reconnect`, including after a recoverable disconnect.
 - A connection belongs to one attempt. A configured monitor belongs to one ready attempt. The client clears ownership before cleanup and ignores callbacks from retired attempts. It releases the monitor's message subscriptions when the attempt ends, even if the monitor factory fails.
 - The newest effective lifecycle command wins. An inert `connect()` does not replace an operation already in progress. Factories run without a receiver. A connection factory must not call handlers before `start()`; `start()` may call handlers synchronously.

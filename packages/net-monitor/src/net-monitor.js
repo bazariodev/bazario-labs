@@ -1,11 +1,11 @@
-const STATES = new Set(['online', 'offline', 'unknown']);
+const STATES = new Set(['online', 'offline']);
 const noop = () => {};
 
 export class BrowserNetMonitor {
   #platform;
   #onListenerError;
   #listeners = new Set();
-  #snapshot = 'unknown';
+  #snapshot = 'online';
   #attached = false;
   #stopped = false;
   #generation = 0;
@@ -134,8 +134,8 @@ export class BrowserNetMonitor {
 
 function readState(platform) {
   try {
-    if (typeof platform?.navigator?.onLine === 'boolean')
-      return platform.navigator.onLine ? 'online' : 'offline';
+    const onLine = platform?.navigator?.onLine;
+    if (typeof onLine === 'boolean') return onLine ? 'online' : 'offline';
   } catch {}
-  return 'unknown';
+  return 'online';
 }

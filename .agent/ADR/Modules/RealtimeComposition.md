@@ -61,7 +61,7 @@ RPC validates unknown incoming frames at its boundary. It ignores invalid values
 - A retry driver schedules and cancels callbacks. It does not send lifecycle events. Retry callbacks run asynchronously and stale retries are ignored.
 - No application message is queued or replayed across attempts. The application synchronizes after each ready event.
 - `createKeepalive: null` means no monitor or probe exists. Server-specific reply behavior belongs to the application's transport or probe integration, whether a monitor is selected or not.
-- Application code owns authentication, connectivity observation and source lifetime, visibility, wake handling, server readiness, and domain recovery. When a source is injected, Realtime owns connection suspension and recovery from its online, offline, and unknown state.
+- Application code owns authentication, connectivity observation and source lifetime, visibility, wake handling, server readiness, and domain recovery. When a source is injected, Realtime owns connection suspension and recovery from its online and offline state. Realtime starts with online state until it reads the first source sample; a source that returns any other value is invalid.
 
 ## Removed layers
 

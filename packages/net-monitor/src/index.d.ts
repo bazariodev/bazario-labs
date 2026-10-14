@@ -1,6 +1,6 @@
 /// <reference lib="esnext.disposable" />
 
-export type ConnectivityState = 'online' | 'offline' | 'unknown';
+export type ConnectivityState = 'online' | 'offline';
 export type Unsubscribe = () => void;
 
 export interface ConnectivitySource {

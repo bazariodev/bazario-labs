@@ -17,7 +17,7 @@ export class RealtimeClient {
   #logger;
   #connectivity;
   #connectivityUnsubscribe = null;
-  #connectivityState = 'unknown';
+  #connectivityState = 'online';
   #suspended = false;
   #retrylessFailed = false;
   #clientSnapshot;
@@ -46,7 +46,7 @@ export class RealtimeClient {
     this.#clientSnapshot = this.#connectivity
       ? Object.freeze({
           ...this.#fsm.snapshot,
-          connectivity: 'unknown',
+          connectivity: 'online',
           suspended: false,
         })
       : this.#fsm.snapshot;
@@ -105,7 +105,7 @@ export class RealtimeClient {
       this.#refreshSnapshot();
       return;
     }
-    if (this.#desired && !this.#suspended && !this.#retrylessFailed) return;
+    if (this.#desired && !this.#retrylessFailed) return;
     const operation = ++this.#operation;
     this.#desired = true;
     this.#suspended = false;
@@ -519,7 +519,7 @@ export class RealtimeClient {
       this.#safeCleanup(cancelRetry, 'retry cancel');
       return;
     }
-    if (state === 'online' && this.#suspended && this.#desired) {
+    if (this.#suspended && this.#desired) {
       this.#suspended = false;
       this.#retrylessFailed = false;
       const operation = ++this.#operation;
@@ -532,23 +532,7 @@ export class RealtimeClient {
         if (this.#isCurrentOperation(operation))
           this.#fsm.send({ type: 'RETRY' });
       } else this.#refreshSnapshot();
-    } else {
-      const operation = this.#operation;
-      this.#refreshSnapshot();
-      if (!this.#isCurrentOperation(operation)) return;
-      if (
-        state === 'online' &&
-        this.#desired &&
-        !this.#suspended &&
-        this.state === 'backoff'
-      ) {
-        const operation = ++this.#operation;
-        const cancelRetry = this.#takeRetry();
-        this.#safeCleanup(cancelRetry, 'retry cancel');
-        if (this.#isCurrentOperation(operation))
-          this.#fsm.send({ type: 'RETRY' });
-      }
-    }
+    } else this.#refreshSnapshot();
   }
 
   #suspendLifecycle(operation) {
@@ -747,5 +731,5 @@ function assertConnectivitySource(source) {
 }
 
 function isConnectivityState(state) {
-  return state === 'online' || state === 'offline' || state === 'unknown';
+  return state === 'online' || state === 'offline';
 }

@@ -16,7 +16,7 @@ export type RealtimeSnapshot = Readonly<{
   connectivity?: ConnectivityState;
   suspended?: boolean;
 }>;
-export type ConnectivityState = 'online' | 'offline' | 'unknown';
+export type ConnectivityState = 'online' | 'offline';
 export interface RealtimeConnectivitySource {
   getSnapshot(): ConnectivityState;
   subscribe(listener: (state: ConnectivityState) => void): Unsubscribe;

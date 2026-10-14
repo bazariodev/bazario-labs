@@ -1,6 +1,6 @@
 {
   "name": "@bazariodev/net-monitor",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Dependency-free browser network state observation.",
   "license": "MIT",
   "author": "Bazario",

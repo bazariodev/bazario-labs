@@ -204,7 +204,7 @@ const fsm = {
   },
 };
 const events = { on() { return () => {}; }, emit() {}, stop() {} };
-const connectivity = { getSnapshot() { return 'unknown'; }, subscribe() { return () => {}; } };
+const connectivity = { getSnapshot() { return 'online'; }, subscribe() { return () => {}; } };
 let handlers;
 const raw = {
   start(value) { handlers = value; },
@@ -269,7 +269,7 @@ const fsm = {
   },
 };
 const events = { on() { return () => {}; }, emit() {}, stop() {} };
-const connectivity = { getSnapshot() { return 'unknown'; }, subscribe() { return () => {}; } };
+const connectivity = { getSnapshot() { return 'online'; }, subscribe() { return () => {}; } };
 let handlers;
 const raw = { start(value) { handlers = value; }, send(value) { assert.equal(value, '{"value":"text"}'); }, [Symbol.dispose]() {} };
 const transport = new JsonTransport(raw);
@@ -289,7 +289,7 @@ declare const events: RealtimeEventPublisher<RealtimeEventMap<number>>;
 declare const transport: RealtimeTransport<number>;
 const deps: RealtimeClientDeps<number> = { fsm: lifecycle, events, createTransport: () => transport, retry: null, createKeepalive: null };
 const client = new RealtimeClient(deps);
-const source: import('@bazariodev/realtime/core').RealtimeConnectivitySource = { getSnapshot: () => 'unknown', subscribe: () => () => {} };
+const source: import('@bazariodev/realtime/core').RealtimeConnectivitySource = { getSnapshot: () => 'online', subscribe: () => () => {} };
 const sourceDeps: RealtimeClientDeps<number> = { fsm: lifecycle, events, createTransport: () => transport, connectivity: source };
 new RealtimeClient(sourceDeps);
 // @ts-expect-error Connectivity state must use the declared union.
@@ -311,7 +311,7 @@ const cjsTypes = `
 import Core = require('@bazariodev/realtime/core');
 declare const deps: Core.RealtimeClientDeps<number>;
 const client = new Core.RealtimeClient(deps);
-const source: Core.RealtimeConnectivitySource = { getSnapshot: () => 'unknown', subscribe: () => () => {} };
+const source: Core.RealtimeConnectivitySource = { getSnapshot: () => 'online', subscribe: () => () => {} };
 const sourceDeps: Core.RealtimeClientDeps<number> = { fsm: deps.fsm, events: deps.events, createTransport: () => deps.createTransport(), connectivity: source };
 new Core.RealtimeClient(sourceDeps);
 // @ts-expect-error Connectivity state must use the declared union.

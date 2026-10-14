@@ -21,3 +21,7 @@ void state;
 // @ts-expect-error Connectivity states use the declared union.
 const invalid: ConnectivityState = 'connected';
 void invalid;
+
+// @ts-expect-error Connectivity states do not include an unknown value.
+const unknown: ConnectivityState = 'unknown';
+void unknown;

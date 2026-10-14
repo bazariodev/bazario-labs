@@ -134,24 +134,62 @@ describe('BrowserNetMonitor', () => {
   });
 
   it('cleans up when an attached listener stops the monitor during attachment', () => {
-    const platform = makePlatform(true);
+    const platform = makePlatform(false);
     const addEventListener = platform.addEventListener;
     platform.addEventListener = vi.fn((type, listener) => {
       addEventListener(type, listener);
       if (type === 'online') listener();
     });
     const monitor = new BrowserNetMonitor({ platform });
+    expect(monitor.getSnapshot()).toBe('offline');
     monitor.subscribe(() => monitor.stop());
     expect(platform.count('online')).toBe(0);
     expect(platform.count('offline')).toBe(0);
   });
 
-  it('returns unknown when the platform has no browser state', () => {
+  it('defaults online when the platform has no browser state', () => {
     const monitor = new BrowserNetMonitor({ platform: {} });
-    expect(monitor.getSnapshot()).toBe('unknown');
+    expect(monitor.getSnapshot()).toBe('online');
     const listener = vi.fn();
     monitor.subscribe(listener);
     expect(listener).not.toHaveBeenCalled();
+    expect(monitor.getSnapshot()).toBe('online');
+  });
+
+  it('defaults online when the onLine value is unavailable or throws', () => {
+    const missing = new BrowserNetMonitor({ platform: { navigator: {} } });
+    const invalid = new BrowserNetMonitor({
+      platform: { navigator: { onLine: 'false' } },
+    });
+    const throwing = new BrowserNetMonitor({
+      platform: {
+        get navigator() {
+          throw new Error('platform denied access');
+        },
+      },
+    });
+
+    expect(missing.getSnapshot()).toBe('online');
+    expect(invalid.getSnapshot()).toBe('online');
+    expect(throwing.getSnapshot()).toBe('online');
+  });
+
+  it('reads offline without attaching listeners when there are no subscribers', () => {
+    const platform = makePlatform(false);
+    const monitor = new BrowserNetMonitor({ platform });
+    expect(monitor.getSnapshot()).toBe('offline');
+    expect(platform.addEventListener).not.toHaveBeenCalled();
+  });
+
+  it('samples offline state on a cold first subscription', () => {
+    const platform = makePlatform(false);
+    const monitor = new BrowserNetMonitor({ platform });
+    const listener = vi.fn();
+    monitor.subscribe(listener);
+    expect(monitor.getSnapshot()).toBe('offline');
+    expect(listener).toHaveBeenCalledOnce();
+    expect(listener).toHaveBeenCalledWith('offline');
+    expect(platform.count('offline')).toBe(1);
   });
 
   it('releases a partial attachment when the second listener fails', () => {
@@ -183,7 +221,7 @@ describe('BrowserNetMonitor', () => {
     expect(monitor.getSnapshot()).toBe('offline');
     expect(monitor.subscribe(listener)).toBeTypeOf('function');
     platform.emit('online');
-    expect(listener).toHaveBeenCalledTimes(2);
+    expect(listener).toHaveBeenCalledOnce();
     expect(platform.count('offline')).toBe(0);
   });
 });

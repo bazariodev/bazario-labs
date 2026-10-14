@@ -26,9 +26,16 @@ declare const transport: Transport;
 declare const keepalive: Keepalive;
 const logger: RealtimeLogger = { debug() {}, warn() {}, error() {} };
 const connectivity: RealtimeConnectivitySource = {
+  getSnapshot: () => 'online',
+  subscribe: () => () => {},
+};
+
+const unknownSource: RealtimeConnectivitySource = {
+  // @ts-expect-error The state type has no third value.
   getSnapshot: () => 'unknown',
   subscribe: () => () => {},
 };
+void unknownSource;
 const jsonOptions: JsonTransportOptions = {
   maxIncomingBytes: 2_097_152,
   warn(message) {
