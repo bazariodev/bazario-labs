@@ -5,11 +5,15 @@
 ### Minor Changes
 
 - Remove `unknown` from `ConnectivityState`. `BrowserNetMonitor` now reports only `online` or `offline`.
-  The monitor starts with `online` and uses `online` when the platform cannot provide a network state.
   A browser value of `navigator.onLine === false` reports `offline`, including at the first sample.
 
-  Update consumers that handle `unknown`. Browser online state still permits a connection attempt and
-  does not confirm that a server is reachable.
+  Require a boolean `navigator.onLine` value. A snapshot read or subscription throws `TypeError` when
+  the platform cannot provide this value. Platform read errors are passed to the caller. A failed
+  subscription releases the resources that it added and preserves other subscriptions.
+
+  Update consumers that handle `unknown` or provide a platform without a boolean `navigator.onLine`.
+  Browser online state still permits a connection attempt and does not confirm that a server is
+  reachable.
 
 ## 0.1.0
 

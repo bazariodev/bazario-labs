@@ -9,7 +9,7 @@ export interface ConnectivitySource {
 }
 
 export type BrowserNetPlatform = Readonly<{
-  navigator?: Readonly<{ onLine?: boolean }>;
+  navigator: Readonly<{ onLine: boolean }>;
   addEventListener?: (type: 'online' | 'offline', listener: () => void) => void;
   removeEventListener?: (
     type: 'online' | 'offline',
@@ -18,7 +18,7 @@ export type BrowserNetPlatform = Readonly<{
 }>;
 
 export type BrowserNetMonitorOptions = Readonly<{
-  platform?: BrowserNetPlatform | null;
+  platform?: BrowserNetPlatform;
   onListenerError?: (error: unknown) => void;
 }>;
 

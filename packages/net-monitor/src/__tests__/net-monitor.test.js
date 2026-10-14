@@ -147,31 +147,148 @@ describe('BrowserNetMonitor', () => {
     expect(platform.count('offline')).toBe(0);
   });
 
-  it('defaults online when the platform has no browser state', () => {
-    const monitor = new BrowserNetMonitor({ platform: {} });
-    expect(monitor.getSnapshot()).toBe('online');
-    const listener = vi.fn();
-    monitor.subscribe(listener);
-    expect(listener).not.toHaveBeenCalled();
-    expect(monitor.getSnapshot()).toBe('online');
+  it.each([
+    ['missing platform state', {}],
+    ['missing navigator', { navigator: undefined }],
+    ['missing onLine', { navigator: {} }],
+    ['null onLine', { navigator: { onLine: null } }],
+    ['non-boolean onLine', { navigator: { onLine: 'false' } }],
+  ])('throws when the platform has %s', (_name, platform) => {
+    const monitor = new BrowserNetMonitor({ platform });
+    expect(() => monitor.getSnapshot()).toThrow(
+      new TypeError('navigator.onLine is unavailable or is not a boolean'),
+    );
   });
 
-  it('defaults online when the onLine value is unavailable or throws', () => {
-    const missing = new BrowserNetMonitor({ platform: { navigator: {} } });
-    const invalid = new BrowserNetMonitor({
-      platform: { navigator: { onLine: 'false' } },
-    });
-    const throwing = new BrowserNetMonitor({
+  it('propagates navigator and onLine accessor errors', () => {
+    const navigatorError = new Error('navigator access denied');
+    const onLineError = new Error('onLine access denied');
+    const navigatorMonitor = new BrowserNetMonitor({
       platform: {
         get navigator() {
-          throw new Error('platform denied access');
+          throw navigatorError;
+        },
+      },
+    });
+    const onLineMonitor = new BrowserNetMonitor({
+      platform: {
+        navigator: {
+          get onLine() {
+            throw onLineError;
+          },
         },
       },
     });
 
-    expect(missing.getSnapshot()).toBe('online');
-    expect(invalid.getSnapshot()).toBe('online');
-    expect(throwing.getSnapshot()).toBe('online');
+    let navigatorCause;
+    let onLineCause;
+    try {
+      navigatorMonitor.getSnapshot();
+    } catch (cause) {
+      navigatorCause = cause;
+    }
+    try {
+      onLineMonitor.getSnapshot();
+    } catch (cause) {
+      onLineCause = cause;
+    }
+    expect(navigatorCause).toBe(navigatorError);
+    expect(onLineCause).toBe(onLineError);
+
+    const subscribeError = new Error('subscribe read failed');
+    const subscribePlatform = makePlatform(true);
+    Object.defineProperty(subscribePlatform.navigator, 'onLine', {
+      configurable: true,
+      get() {
+        throw subscribeError;
+      },
+    });
+    const subscribeMonitor = new BrowserNetMonitor({
+      platform: subscribePlatform,
+    });
+    let subscribeCause;
+    try {
+      subscribeMonitor.subscribe(() => {});
+    } catch (cause) {
+      subscribeCause = cause;
+    }
+    expect(subscribeCause).toBe(subscribeError);
+    expect(subscribePlatform.count('online')).toBe(0);
+    expect(subscribePlatform.count('offline')).toBe(0);
+  });
+
+  it('rolls back a failed first subscription and allows a later subscription', () => {
+    const platform = makePlatform(true);
+    let shouldThrow = true;
+    Object.defineProperty(platform.navigator, 'onLine', {
+      configurable: true,
+      get() {
+        if (shouldThrow) throw new Error('state read failed');
+        return true;
+      },
+    });
+    const monitor = new BrowserNetMonitor({ platform });
+    const failedListener = vi.fn();
+    expect(() => monitor.subscribe(failedListener)).toThrow(
+      'state read failed',
+    );
+    expect(platform.count('online')).toBe(0);
+    expect(platform.count('offline')).toBe(0);
+    expect(failedListener).not.toHaveBeenCalled();
+
+    shouldThrow = false;
+    const activeListener = vi.fn();
+    const unsubscribe = monitor.subscribe(activeListener);
+    expect(platform.count('online')).toBe(1);
+    unsubscribe();
+    expect(platform.count('online')).toBe(0);
+  });
+
+  it('keeps existing observers when a later subscription read fails', () => {
+    const platform = makePlatform(true);
+    let shouldThrow = false;
+    Object.defineProperty(platform.navigator, 'onLine', {
+      configurable: true,
+      get() {
+        if (shouldThrow) throw new Error('state read failed');
+        return true;
+      },
+    });
+    const monitor = new BrowserNetMonitor({ platform });
+    const existingListener = vi.fn();
+    const failedListener = vi.fn();
+    const unsubscribe = monitor.subscribe(existingListener);
+
+    shouldThrow = true;
+    expect(() => monitor.subscribe(failedListener)).toThrow(
+      'state read failed',
+    );
+    expect(platform.count('online')).toBe(1);
+    expect(platform.count('offline')).toBe(1);
+
+    shouldThrow = false;
+    Object.defineProperty(platform.navigator, 'onLine', {
+      configurable: true,
+      value: false,
+    });
+    platform.emit('offline');
+    expect(existingListener).toHaveBeenCalledWith('offline');
+    expect(failedListener).not.toHaveBeenCalled();
+    unsubscribe();
+    expect(platform.count('offline')).toBe(0);
+  });
+
+  it('does not read the platform after stop', () => {
+    const navigatorGetter = vi.fn(() => ({ onLine: false }));
+    const platform = Object.defineProperty({}, 'navigator', {
+      get: navigatorGetter,
+    });
+    const monitor = new BrowserNetMonitor({ platform });
+
+    monitor.stop();
+    expect(monitor.getSnapshot()).toBe('online');
+    monitor.subscribe(() => {});
+    expect(navigatorGetter).not.toHaveBeenCalled();
   });
 
   it('reads offline without attaching listeners when there are no subscribers', () => {

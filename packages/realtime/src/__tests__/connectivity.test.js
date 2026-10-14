@@ -416,6 +416,50 @@ describe('RealtimeClient connectivity', () => {
     expect(events.stop).toHaveBeenCalledOnce();
   });
 
+  it('cleans up Realtime setup when a borrowed monitor cannot read its state', () => {
+    const platformListeners = new Map();
+    const platform = {
+      addEventListener(type, listener) {
+        const current = platformListeners.get(type) ?? new Set();
+        current.add(listener);
+        platformListeners.set(type, current);
+      },
+      removeEventListener(type, listener) {
+        platformListeners.get(type)?.delete(listener);
+      },
+    };
+    const connectivity = new BrowserNetMonitor({ platform });
+    const unsubscribeFsm = vi.fn();
+    const events = { stop: vi.fn(), emit: vi.fn(), on: vi.fn(() => () => {}) };
+    const fsm = {
+      state: 'idle',
+      snapshot: {
+        value: 'idle',
+        previousValue: null,
+        context: { attempt: 0 },
+        version: 0,
+      },
+      send: vi.fn(),
+      subscribe: vi.fn(() => unsubscribeFsm),
+    };
+
+    expect(
+      () =>
+        new RealtimeClient({
+          fsm,
+          events,
+          createTransport: () => ({}),
+          connectivity,
+        }),
+    ).toThrow(
+      new TypeError('navigator.onLine is unavailable or is not a boolean'),
+    );
+    expect(platformListeners.get('online')?.size ?? 0).toBe(0);
+    expect(platformListeners.get('offline')?.size ?? 0).toBe(0);
+    expect(unsubscribeFsm).toHaveBeenCalledOnce();
+    expect(events.stop).toHaveBeenCalledOnce();
+  });
+
   it.each([
     'connected',
     'unknown',

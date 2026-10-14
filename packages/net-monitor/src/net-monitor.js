@@ -34,18 +34,16 @@ export class BrowserNetMonitor {
 
     const registration = { listener, active: true };
     this.#listeners.add(registration);
-    if (this.#listeners.size === 1) {
-      try {
-        this.#attach();
-      } catch (cause) {
-        this.#listeners.delete(registration);
-        registration.active = false;
-        this.#detach();
-        throw cause;
-      }
+    try {
+      if (this.#listeners.size === 1) this.#attach();
+      if (!this.#stopped && registration.active)
+        this.#update(readState(this.#platform));
+    } catch (cause) {
+      registration.active = false;
+      this.#listeners.delete(registration);
+      if (this.#listeners.size === 0) this.#detach();
+      throw cause;
     }
-
-    this.#update(readState(this.#platform));
     return () => {
       if (!registration.active) return;
       registration.active = false;
@@ -133,9 +131,8 @@ export class BrowserNetMonitor {
 }
 
 function readState(platform) {
-  try {
-    const onLine = platform?.navigator?.onLine;
-    if (typeof onLine === 'boolean') return onLine ? 'online' : 'offline';
-  } catch {}
-  return 'online';
+  const onLine = platform?.navigator?.onLine;
+  if (typeof onLine !== 'boolean')
+    throw new TypeError('navigator.onLine is unavailable or is not a boolean');
+  return onLine ? 'online' : 'offline';
 }

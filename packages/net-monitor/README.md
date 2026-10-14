@@ -27,7 +27,7 @@ when the application no longer needs the monitor.
 
 - `getSnapshot()` returns `online` or `offline`.
 - Without subscribers, `getSnapshot()` reads `navigator.onLine`. With subscribers, it returns the
-  last observed state. It reports `online` when the value is not available or is not a boolean.
+  last observed state. A missing or non-boolean value causes a `TypeError` when the monitor reads it.
 - A startup sample of `navigator.onLine === false` reports `offline` before any event.
 - The first subscription adds browser `online` and `offline` listeners. The last unsubscribe removes
   them. A later subscription reads the platform state again.
@@ -46,10 +46,10 @@ when the application no longer needs the monitor.
 | `subscribe(listener)` | Listen for state changes. Return an idempotent unsubscribe function. |
 | `stop()` / `[Symbol.dispose]()` | Remove all listeners and stop the monitor permanently. |
 
-`BrowserNetMonitorOptions.platform` selects a platform port for tests or another host. It may provide
-`navigator.onLine`, `addEventListener`, and `removeEventListener`. `onListenerError` receives errors
-from listeners and platform listener removal. Errors from listener attachment are thrown after the
-monitor releases any listener that it already added.
+`BrowserNetMonitorOptions.platform` selects a platform port for tests or another host. It must provide
+a boolean `navigator.onLine` value. It may also provide `addEventListener` and `removeEventListener`.
+`onListenerError` receives errors from listeners and platform listener removal. Errors from listener
+attachment are thrown after the monitor releases any listener that it already added.
 
 The source also implements this structural interface:
 
@@ -64,9 +64,11 @@ interface ConnectivitySource {
 
 ## Errors
 
-`subscribe()` throws `TypeError` when its listener is not a function. A platform error while adding
-a browser listener is thrown after partial setup is released. Listener errors go to
-`onListenerError`; if that callback throws, the monitor contains that error.
+`getSnapshot()` and `subscribe()` throw `TypeError` when a platform read does not return a boolean.
+`subscribe()` also throws `TypeError` when its listener is not a function. The monitor releases a new
+registration if its sample fails. A platform error while adding a browser listener is thrown after
+partial setup is released. Errors from `navigator` or `onLine` accessors pass through unchanged.
+Listener errors go to `onListenerError`; if that callback throws, the monitor contains that error.
 
 ## TypeScript
 

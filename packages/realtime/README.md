@@ -204,7 +204,7 @@ The transport `onError` callback is diagnostic. It reports an error but does not
 
 ## Errors
 
-The client and default retry options validate during construction. A connectivity source must return a declared state and an unsubscribe function. A monitor is built for a ready attempt, so its factory or start can fail later; the client reports the error and applies its recovery policy. A failed local write returns `false` and reports an error. Cleanup errors are logged while cleanup continues.
+The client and default retry options validate during construction. A connectivity source must return a declared state and an unsubscribe function. If the initial source subscription or sample throws, construction throws after the client releases its setup. A monitor built for a ready attempt can fail later; the client reports that error and applies its recovery policy. A failed local write returns `false` and reports an error. Cleanup errors are logged while cleanup continues.
 
 ## TypeScript
 

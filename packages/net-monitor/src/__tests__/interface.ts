@@ -1,4 +1,5 @@
 import type {
+  BrowserNetMonitorOptions,
   BrowserNetPlatform,
   ConnectivitySource,
   ConnectivityState,
@@ -25,3 +26,15 @@ void invalid;
 // @ts-expect-error Connectivity states do not include an unknown value.
 const unknown: ConnectivityState = 'unknown';
 void unknown;
+
+// @ts-expect-error A supplied platform must include navigator.onLine.
+const missingNavigator: BrowserNetPlatform = {};
+void missingNavigator;
+
+// @ts-expect-error A supplied platform must include a boolean onLine value.
+const missingOnLine: BrowserNetPlatform = { navigator: {} };
+void missingOnLine;
+
+// @ts-expect-error A platform cannot be null.
+const nullPlatform: BrowserNetMonitorOptions = { platform: null };
+void nullPlatform;

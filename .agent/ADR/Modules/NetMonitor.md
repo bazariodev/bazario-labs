@@ -7,7 +7,7 @@
 
 Provide `@bazariodev/net-monitor` as a small, dependency-free source for browser online and offline
 hints. It reads `navigator.onLine` and observes browser `online` and `offline` events. It reports
-`online` when the platform does not provide a boolean online value. It reports
+an error when the platform does not provide a boolean online value. It reports
 `offline` immediately when a startup or later sample reads `navigator.onLine === false`.
 
 The monitor attaches browser listeners only while it has subscribers. The first subscription
@@ -65,21 +65,25 @@ Direct construction still requires the lifecycle and event publisher.
 
 `BrowserNetMonitor` reads `navigator.onLine` and browser online/offline events.
 Use an injectable structural platform port. Public types must compile without
-DOM types. Missing platform support, a missing or non-boolean value, or a read
-error gives online. A false value gives offline. Imports and construction attach
-no listeners. The first subscriber attaches both listeners before reading the
-current state. The last unsubscribe releases both. A new subscription reads
-state again after any observation gap. A snapshot read without subscribers reads
-the platform state so a previously observed value does not remain stale.
+DOM types. A missing navigator, missing value, or non-boolean value throws a
+`TypeError` when the monitor reads it. Accessor errors pass through unchanged.
+A false value gives offline. Imports and construction attach no listeners. The
+first subscriber attaches both listeners before reading the current state. The
+last unsubscribe releases both. A new subscription reads state again after any
+observation gap. A snapshot read without subscribers reads the platform state so
+a previously observed value does not remain stale.
 
 Each subscribe call owns an independent registration and cleanup function, even
 for the same callback. Commit state before notification. Suppress duplicates.
 Contain listener errors. Do not deliver to a removed registration. If notification
 causes another state change, do not deliver an older state after the newer state.
-Unsubscribe is idempotent. `stop()` and `[Symbol.dispose]()` are terminal and
-idempotent. Stop releases listeners and subscriptions, retains the last snapshot,
-and makes later subscriptions inert. Failed listener attachment releases any
-listener already attached before the error is reported.
+Unsubscribe is idempotent. A failed sample removes only the new subscription. It
+releases browser listeners when that subscription was the only one. It keeps
+existing subscriptions active when a later subscription fails. `stop()` and
+`[Symbol.dispose]()` are terminal and idempotent. Stop releases listeners and
+subscriptions, retains the last snapshot, and makes later subscriptions inert.
+Failed listener attachment releases any listener already attached before the
+error is reported.
 
 Realtime starts online before its first sample. It subscribes before sampling and
 tolerates synchronous source callbacks. Its constructor cleans up subscriptions if
@@ -151,7 +155,7 @@ credentials, or retry budget.
 
 ## Required coverage
 
-Cover initial online/offline and unavailable platform state, observer attachment and resubscription,
+Cover initial online/offline and unsupported platform state, observer attachment and resubscription,
 shared lifetime, duplicate callback registrations, errors, re-entry, and stop.
 Cover offline in each active state, connect and reconnect while offline,
 offline/close in both orders with retries enabled and disabled, immediate recovery,
