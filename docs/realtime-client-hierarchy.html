@@ -393,12 +393,12 @@
     </ul></nav>
   </header>
   <main>
-    <p class="principle"><strong>Ownership rule:</strong> a transport adapter owns one physical attempt. RealtimeClient owns readiness and recovery. Keepalive owns one abortable probe when configured. RPC owns request matching. The application owns auth, online state, wake handling, and domain recovery.</p>
+    <p class="principle"><strong>Ownership rule:</strong> a transport adapter owns one physical attempt. RealtimeClient owns readiness and recovery. Keepalive owns one abortable probe when configured. RPC owns request matching. The application owns auth, online-source lifetime, wake handling, and domain recovery; RealtimeClient can consume optional connectivity for recovery policy.</p>
     <section aria-labelledby="hierarchy-title">
       <h2 id="hierarchy-title">Module and runtime hierarchy</h2>
       <p class="section-intro">The lifecycle, event publisher, and retry driver live for one client. Each attempt gets one connection. A monitor exists only when selected.</p>
       <div class="architecture-layout"><figure><ol class="stack" aria-label="Realtime message path">
-        <li class="node"><strong>Application and domain modules</strong><span>Authentication · online and wake state · synchronization · delivery policy</span></li>
+        <li class="node"><strong>Application and domain modules</strong><span>Authentication · online-source lifetime · wake state · synchronization · delivery policy</span></li>
         <li class="edge">requests and notifications</li>
         <li class="node"><strong><code>@bazariodev/rpc</code></strong><span>Flat request, result, error, and notification frames · IDs · bounded waits</span></li>
         <li class="edge"><code>send</code> · <code>onMessage</code> · snapshot <code>subscribe</code></li>
@@ -414,7 +414,7 @@
         <div><dt><code>@bazariodev/keepalive</code></dt><dd>Runs an abortable probe with idle and fixed response windows. The application defines the request and matching rule.</dd></div>
         <div><dt><code>@bazariodev/idle-watchdog</code></dt><dd>Provides the two one-shot timers used by Keepalive.</dd></div>
         <div><dt><code>@bazariodev/coordination</code> and <code>@bazariodev/fsm</code></dt><dd>Provide the root factory's default event publisher and lifecycle.</dd></div>
-        <div><dt>Application composition</dt><dd>Owns credentials, online and visibility state, wake response, server readiness, and synchronization.</dd></div>
+        <div><dt>Application composition</dt><dd>Owns credentials and connectivity-source lifetime; RealtimeClient can consume online/offline state for recovery. Application retains visibility state, wake response, server readiness, and synchronization.</dd></div>
       </dl></aside></div>
     </section>
     <section aria-labelledby="assembly-title"><h2 id="assembly-title">Default assembly and omission rules</h2>
@@ -450,7 +450,7 @@
       <article class="decision"><h3>Safety remains in the owners</h3><p>Attempt identity, newest-command checks, terminal stop, ready-only sends, and full cleanup protect reentrant and late callbacks.</p></article>
     </div></section>
     <section aria-labelledby="ringotel-title"><h2 id="ringotel-title">Mapping to a Ringotel application</h2><div class="table-wrap" tabindex="0" role="region" aria-label="Application operation mapping"><table><thead><tr><th>Application operation</th><th>Composition action</th></tr></thead><tbody>
-      <tr><td>Desired auth or online state</td><td>Application connects when credentials and network state are ready.</td></tr>
+      <tr><td>Desired auth or online state</td><td>Application owns credentials and the connectivity source; RealtimeClient applies optional online/offline recovery policy.</td></tr>
       <tr><td>Reset or replacement</td><td>Call recoverable <code>disconnect()</code> or explicit <code>reconnect()</code>.</td></tr>
       <tr><td>Dispose</td><td>Call terminal <code>stop()</code>.</td></tr>
       <tr><td>State and ready events</td><td>Subscribe to snapshots and <code>onReady</code>; synchronize missed domain state.</td></tr>

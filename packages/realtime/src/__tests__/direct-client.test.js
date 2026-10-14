@@ -1,5 +1,7 @@
 import { Emitter } from '@bazariodev/coordination';
+import { Fsm } from '@bazariodev/fsm';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { createFsmConfig } from '../fsm-config.js';
 import { RealtimeClient } from '../realtime-client.js';
 import {
   createClient,
@@ -11,6 +13,47 @@ import {
 afterEach(() => vi.useRealTimers());
 
 describe('injected RealtimeClient', () => {
+  it('reads current snapshots in earlier lifecycle subscribers without connectivity', () => {
+    const fsm = new Fsm(createFsmConfig(logger));
+    const transport = new StubTransport();
+    const observations = [];
+    let client;
+    const unsubscribe = fsm.subscribe((snapshot) => {
+      observations.push({
+        expected: snapshot,
+        actual: client.snapshot,
+        state: client.state,
+      });
+    });
+    client = new RealtimeClient({
+      fsm,
+      events: new Emitter({ logger }),
+      createTransport: () => transport,
+      logger,
+    });
+
+    try {
+      client.connect();
+      transport.open();
+      client.disconnect();
+      client.stop();
+
+      expect(observations.map(({ state }) => state)).toEqual([
+        'connecting',
+        'ready',
+        'idle',
+        'stopped',
+      ]);
+      for (const { expected, actual, state } of observations) {
+        expect(actual).toBe(expected);
+        expect(actual.value).toBe(state);
+      }
+    } finally {
+      client.stop();
+      unsubscribe();
+    }
+  });
+
   it('forwards opaque messages to one injected transport unchanged', () => {
     const { client, transports } = createClient();
     const message = { type: 'ready', protocol: 99, data: { raw: true } };

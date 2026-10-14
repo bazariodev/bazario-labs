@@ -14,6 +14,10 @@ declare const fsm: Fsm<
 declare const events: Emitter<Realtime.RealtimeEventMap<unknown>>;
 declare const transport: Transport;
 declare const keepalive: Keepalive;
+const connectivity: Realtime.RealtimeConnectivitySource = {
+  getSnapshot: () => 'unknown',
+  subscribe: () => () => {},
+};
 const jsonOptions: Realtime.JsonTransportOptions = {
   maxIncomingBytes: 2_097_152,
   warn(message) {
@@ -25,16 +29,27 @@ const deps: Realtime.RealtimeClientDeps<unknown> = {
   events,
   createTransport: () => new Realtime.JsonTransport(transport, jsonOptions),
   createKeepalive: () => keepalive,
+  connectivity,
   retry: null,
 };
 const core = new Realtime.RealtimeClient(deps);
 const client = Realtime.createRealtimeClient({
   createTransport: () => transport,
+  connectivity,
   retry: null,
 });
 client.send('hello');
 core.stop();
 client.stop();
+
+Realtime.createRealtimeClient({
+  createTransport: () => transport,
+  connectivity: {
+    // @ts-expect-error Connectivity uses the declared state union.
+    getSnapshot: () => 'connected',
+    subscribe: () => () => {},
+  },
+});
 
 const jitterClient = Realtime.createRealtimeClient({
   createTransport: () => transport,

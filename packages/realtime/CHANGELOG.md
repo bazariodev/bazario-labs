@@ -1,5 +1,22 @@
 # @bazariodev/realtime
 
+## 0.2.0
+
+### Minor Changes
+
+- Add an optional `connectivity` source to `RealtimeClient` and `createRealtimeClient()`. Known offline
+  state suspends the requested connection and keeps retry history. Online state resumes the connection.
+  Manual `disconnect()` and `stop()` prevent automatic recovery. With `retry: null`, an offline period
+  permits one recovery attempt after online state returns.
+
+- Add `connectivity` and `suspended` fields to snapshots when a source is supplied. Keep snapshot
+  references stable until a change occurs. Without a source, keep the existing lifecycle snapshot
+  and connection behavior. Realtime does not require the net-monitor package.
+
+  An injected lifecycle used with connectivity must accept `SUSPEND` from `idle`, `connecting`,
+  `ready`, and `backoff`. This event returns to `idle` and keeps `context.attempt`. The lifecycle must
+  also accept `DISCONNECT` from `idle` and reset `context.attempt`.
+
 ## 0.1.0
 
 ### Minor Changes

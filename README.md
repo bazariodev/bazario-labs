@@ -17,6 +17,7 @@ JavaScript building blocks for realtime connections, chat, and telephony, with T
 | [`@bazariodev/idle-watchdog`](./packages/idle-watchdog) | Dependency-free, re-armable one-shot inactivity timer with explicit activity reporting, idle subscriptions, and disposal. |
 | [`@bazariodev/keepalive`](./packages/keepalive) | Abortable promise probes with idle and response deadlines. |
 | [`@bazariodev/coordination`](./packages/coordination) | FIFO Queue storage, task executors, typed event subscriptions, bounded jitter, and caller-owned backoff scheduling. |
+| [`@bazariodev/net-monitor`](./packages/net-monitor) | Dependency-free browser online and offline state observation. |
 | [`@bazariodev/rpc`](./packages/rpc) | Flat request and notification frames with bounded response correlation and cancellation. |
 | [`@bazariodev/realtime`](./packages/realtime) | Injected client for connection readiness, attempt replacement, and recovery over opaque messages. |
 
@@ -40,7 +41,9 @@ factory selects lifecycle and retry defaults; the `/core` entry accepts injected
 importing those defaults. The root factory shares one coordination timer provider across connection
 timeout, default retry, and default Keepalive. Keepalive runs an abortable probe only when configured.
 RPC uses the RealtimeClient directly and sends flat request/result/error frames. The application owns
-auth, online state, wake handling, readiness beyond transport open, and domain synchronization. See the
+auth, wake handling, readiness beyond transport open, and domain synchronization. It may inject
+`@bazariodev/net-monitor` as a connectivity source; Realtime owns suspension and recovery decisions.
+See the
 [current composition decision](./.agent/ADR/Modules/RealtimeComposition.md).
 
 These guides are HTML pages. GitHub shows their source, so clone the repository and open them in a

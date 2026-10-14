@@ -15,6 +15,13 @@ export class RealtimeClient {
   #scheduler;
   #connectTimeoutMs;
   #logger;
+  #connectivity;
+  #connectivityUnsubscribe = null;
+  #connectivityState = 'unknown';
+  #suspended = false;
+  #retrylessFailed = false;
+  #clientSnapshot;
+  #clientRawSnapshot;
   #unsubscribe = null;
   #stateSubscriptions = new WeakMap();
   #attempt = null;
@@ -34,6 +41,15 @@ export class RealtimeClient {
     this.#scheduler = deps.scheduler ?? DEFAULT_SCHEDULER;
     this.#connectTimeoutMs = deps.connectTimeoutMs;
     this.#logger = deps.logger;
+    this.#connectivity = deps.connectivity ?? null;
+    this.#clientRawSnapshot = this.#fsm.snapshot;
+    this.#clientSnapshot = this.#connectivity
+      ? Object.freeze({
+          ...this.#fsm.snapshot,
+          connectivity: 'unknown',
+          suspended: false,
+        })
+      : this.#fsm.snapshot;
 
     try {
       this.#unsubscribe = this.#fsm.subscribe((snapshot) =>
@@ -43,14 +59,38 @@ export class RealtimeClient {
         throw new TypeError(
           'fsm.subscribe must return an unsubscribe function',
         );
+      if (this.#connectivity) {
+        assertConnectivitySource(this.#connectivity);
+        const unsubscribe = this.#connectivity.subscribe((state) =>
+          this.#onConnectivity(state),
+        );
+        if (typeof unsubscribe !== 'function')
+          throw new TypeError(
+            'connectivity.subscribe must return an unsubscribe function',
+          );
+        this.#connectivityUnsubscribe = unsubscribe;
+        const state = this.#connectivity.getSnapshot();
+        if (!isConnectivityState(state))
+          throw new TypeError(
+            'connectivity.getSnapshot returned an invalid state',
+          );
+        this.#onConnectivity(state);
+      }
     } catch (cause) {
+      this.#safeCleanup(
+        this.#connectivityUnsubscribe,
+        'connectivity unsubscribe',
+      );
+      this.#connectivityUnsubscribe = null;
+      this.#safeCleanup(this.#unsubscribe, 'fsm unsubscribe');
+      this.#unsubscribe = null;
       this.#safeCleanup(() => this.#events.stop(), 'events stop');
       throw cause;
     }
   }
 
   get snapshot() {
-    return this.#fsm.snapshot;
+    return this.#connectivity ? this.#clientSnapshot : this.#fsm.snapshot;
   }
 
   get state() {
@@ -58,9 +98,19 @@ export class RealtimeClient {
   }
 
   connect() {
-    if (this.#stopped || this.#desired || this.state !== 'idle') return;
-    this.#operation++;
+    if (this.#stopped || this.state !== 'idle') return;
+    if (this.#connectivity && this.#connectivityState === 'offline') {
+      this.#desired = true;
+      this.#suspended = true;
+      this.#refreshSnapshot();
+      return;
+    }
+    if (this.#desired && !this.#suspended && !this.#retrylessFailed) return;
+    const operation = ++this.#operation;
     this.#desired = true;
+    this.#suspended = false;
+    this.#retrylessFailed = false;
+    if (!this.#isCurrentOperation(operation)) return;
     this.#fsm.send({ type: 'CONNECT' });
   }
 
@@ -68,6 +118,18 @@ export class RealtimeClient {
     if (this.#stopped) return;
     const operation = ++this.#operation;
     this.#desired = true;
+    this.#retrylessFailed = false;
+    if (this.#connectivity && this.#connectivityState === 'offline') {
+      this.#suspended = true;
+      const cancelRetry = this.#takeRetry();
+      const attempt = this.#attempt;
+      const suspend = () => this.#suspendLifecycle(operation);
+      if (attempt) this.#retire(attempt, suspend);
+      else suspend();
+      this.#safeCleanup(cancelRetry, 'retry cancel');
+      return;
+    }
+    this.#suspended = false;
     const cancelRetry = this.#takeRetry();
     this.#retire(this.#attempt);
     this.#safeCleanup(cancelRetry, 'retry cancel');
@@ -78,11 +140,28 @@ export class RealtimeClient {
   disconnect() {
     if (this.#stopped) return;
     const operation = ++this.#operation;
+    const wasSuspended = this.#suspended;
     this.#desired = false;
+    this.#suspended = false;
+    this.#retrylessFailed = false;
     const cancelRetry = this.#takeRetry();
+    if (this.#connectivity) {
+      const attempt = this.#attempt;
+      const disconnect = () => {
+        if (!this.#isCurrentOperation(operation)) return;
+        if (this.state !== 'idle' || wasSuspended)
+          this.#fsm.send({ type: 'DISCONNECT' });
+        else this.#refreshSnapshot();
+      };
+      if (attempt) this.#retire(attempt, disconnect);
+      else disconnect();
+      this.#safeCleanup(cancelRetry, 'retry cancel');
+      return;
+    }
     this.#retire(this.#attempt);
     this.#safeCleanup(cancelRetry, 'retry cancel');
-    if (!this.#isCurrentOperation(operation) || this.state === 'idle') return;
+    if (!this.#isCurrentOperation(operation)) return;
+    if (this.state === 'idle') return;
     this.#fsm.send({ type: 'DISCONNECT' });
   }
 
@@ -91,6 +170,7 @@ export class RealtimeClient {
     this.#stopped = true;
     this.#operation++;
     this.#desired = false;
+    this.#suspended = false;
     const cancelRetry = this.#takeRetry();
     this.#retire(this.#attempt);
     this.#safeCleanup(cancelRetry, 'retry cancel');
@@ -99,6 +179,9 @@ export class RealtimeClient {
     const unsubscribe = this.#unsubscribe;
     this.#unsubscribe = null;
     this.#safeCleanup(unsubscribe, 'fsm unsubscribe');
+    const connectivityUnsubscribe = this.#connectivityUnsubscribe;
+    this.#connectivityUnsubscribe = null;
+    this.#safeCleanup(connectivityUnsubscribe, 'connectivity unsubscribe');
     this.#safeCleanup(() => this.#events.stop(), 'events stop');
   }
 
@@ -110,7 +193,7 @@ export class RealtimeClient {
     const existing = this.#stateSubscriptions.get(listener);
     if (existing) return existing.unsubscribe;
     const wrapper = (snapshot) => {
-      if (snapshot === this.#fsm.snapshot) listener(snapshot);
+      if (snapshot === this.#clientSnapshot) listener(snapshot);
     };
     const unsubscribe = this.#events.on('state', wrapper);
     let active = true;
@@ -153,10 +236,19 @@ export class RealtimeClient {
 
   #onSnapshot(snapshot) {
     if (this.#stopped && snapshot.value !== 'stopped') return;
-    if (snapshot.value !== 'backoff') this.#cancelRetry();
     if (this.#fsm.snapshot !== snapshot) return;
-    this.#emit('state', snapshot);
-    if (this.#fsm.snapshot !== snapshot || this.#stopped) return;
+    const operation = this.#operation;
+    const clientSnapshot = this.#commitSnapshot(snapshot);
+    if (snapshot.value !== 'backoff') this.#cancelRetry();
+    if (this.#clientSnapshot !== clientSnapshot) return;
+    this.#emit('state', clientSnapshot);
+    if (
+      this.#fsm.snapshot !== snapshot ||
+      this.#operation !== operation ||
+      this.#stopped
+    )
+      return;
+    if (this.#connectivity && this.#connectivityState === 'offline') return;
     if (snapshot.value === 'connecting' && this.#desired && !this.#attempt)
       this.#startAttempt();
     else if (snapshot.value === 'backoff' && this.#desired)
@@ -341,7 +433,11 @@ export class RealtimeClient {
     if (this.#operation === operation && this.#desired && !this.#stopped) {
       if (this.#retry) this.#fsm.send({ type: 'FAIL' });
       else {
-        this.#desired = false;
+        if (this.#connectivity) {
+          this.#retrylessFailed = true;
+        } else {
+          this.#desired = false;
+        }
         this.#fsm.send({ type: 'DISCONNECT' });
       }
     }
@@ -398,11 +494,108 @@ export class RealtimeClient {
     this.#emit('error', cause);
   }
 
-  #retire(attempt) {
+  #onConnectivity(state) {
+    if (!this.#connectivity || this.#stopped) return;
+    if (!isConnectivityState(state)) {
+      this.#warn('RealtimeClient connectivity state is invalid', { state });
+      return;
+    }
+    const previous = this.#connectivityState;
+    if (previous === state) return;
+    this.#connectivityState = state;
+    if (state === 'offline') {
+      this.#suspended = this.#desired;
+      this.#retrylessFailed = false;
+      const operation = ++this.#operation;
+      const cancelRetry = this.#takeRetry();
+      const attempt = this.#attempt;
+      const suspend = () => {
+        if (this.#desired || this.state !== 'idle')
+          this.#suspendLifecycle(operation);
+        else this.#refreshSnapshot();
+      };
+      if (attempt) this.#retire(attempt, suspend);
+      else suspend();
+      this.#safeCleanup(cancelRetry, 'retry cancel');
+      return;
+    }
+    if (state === 'online' && this.#suspended && this.#desired) {
+      this.#suspended = false;
+      this.#retrylessFailed = false;
+      const operation = ++this.#operation;
+      if (this.state === 'idle') {
+        if (this.#isCurrentOperation(operation))
+          this.#fsm.send({ type: 'CONNECT' });
+      } else if (this.state === 'backoff') {
+        const cancelRetry = this.#takeRetry();
+        this.#safeCleanup(cancelRetry, 'retry cancel');
+        if (this.#isCurrentOperation(operation))
+          this.#fsm.send({ type: 'RETRY' });
+      } else this.#refreshSnapshot();
+    } else {
+      const operation = this.#operation;
+      this.#refreshSnapshot();
+      if (!this.#isCurrentOperation(operation)) return;
+      if (
+        state === 'online' &&
+        this.#desired &&
+        !this.#suspended &&
+        this.state === 'backoff'
+      ) {
+        const operation = ++this.#operation;
+        const cancelRetry = this.#takeRetry();
+        this.#safeCleanup(cancelRetry, 'retry cancel');
+        if (this.#isCurrentOperation(operation))
+          this.#fsm.send({ type: 'RETRY' });
+      }
+    }
+  }
+
+  #suspendLifecycle(operation) {
+    if (!this.#isCurrentOperation(operation) || this.state === 'stopped')
+      return;
+    this.#fsm.send({ type: 'SUSPEND' });
+  }
+
+  #refreshSnapshot() {
+    if (!this.#connectivity) return;
+    const previous = this.#clientSnapshot;
+    const snapshot = this.#commitSnapshot(this.#fsm.snapshot);
+    if (snapshot !== previous) this.#emit('state', snapshot);
+  }
+
+  #commitSnapshot(rawSnapshot) {
+    if (!this.#connectivity) {
+      this.#clientRawSnapshot = rawSnapshot;
+      this.#clientSnapshot = rawSnapshot;
+      return rawSnapshot;
+    }
+    if (
+      rawSnapshot === this.#clientRawSnapshot &&
+      this.#clientSnapshot.connectivity === this.#connectivityState &&
+      this.#clientSnapshot.suspended === this.#suspended
+    )
+      return this.#clientSnapshot;
+    this.#clientRawSnapshot = rawSnapshot;
+    const version = Math.max(
+      rawSnapshot.version,
+      this.#clientSnapshot.version + 1,
+    );
+    this.#clientSnapshot = Object.freeze({
+      ...rawSnapshot,
+      connectivity: this.#connectivityState,
+      suspended: this.#suspended,
+      version,
+    });
+    return this.#clientSnapshot;
+  }
+
+  #retire(attempt, beforeCleanup) {
     if (!attempt || this.#attempt !== attempt) return;
     this.#attempt = null;
     attempt.ready = false;
-    this.#clearConnectTimeout(attempt);
+    const connectTimer = attempt.connectTimer;
+    attempt.connectTimer = null;
     const unsubscribe = attempt.unsubscribe;
     attempt.unsubscribe = null;
     const messageUnsubscribes = [...attempt.messageUnsubscribes];
@@ -411,6 +604,14 @@ export class RealtimeClient {
     attempt.monitor = null;
     const transport = attempt.transport;
     attempt.transport = null;
+    if (typeof beforeCleanup === 'function') {
+      try {
+        beforeCleanup();
+      } catch (cause) {
+        this.#warn('RealtimeClient retirement callback failed', { cause });
+      }
+    }
+    if (connectTimer) this.#clearTimer(connectTimer);
     for (const release of messageUnsubscribes)
       this.#safeCleanup(release, 'message unsubscribe');
     this.#safeCleanup(unsubscribe, 'monitor unsubscribe');
@@ -525,6 +726,8 @@ function assertDeps(deps) {
     typeof deps.createKeepalive !== 'function'
   )
     throw new TypeError('createKeepalive must be a function');
+  if (deps.connectivity !== undefined && deps.connectivity !== null)
+    assertConnectivitySource(deps.connectivity);
   if (
     deps.connectTimeoutMs !== undefined &&
     (!Number.isInteger(deps.connectTimeoutMs) ||
@@ -532,4 +735,17 @@ function assertDeps(deps) {
       deps.connectTimeoutMs > MAX_TIMER_MS)
   )
     throw new RangeError('connectTimeoutMs must be a positive timer duration');
+}
+
+function assertConnectivitySource(source) {
+  if (
+    !source ||
+    typeof source.getSnapshot !== 'function' ||
+    typeof source.subscribe !== 'function'
+  )
+    throw new TypeError('connectivity must provide getSnapshot and subscribe');
+}
+
+function isConnectivityState(state) {
+  return state === 'online' || state === 'offline' || state === 'unknown';
 }

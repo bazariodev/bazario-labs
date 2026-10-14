@@ -13,7 +13,14 @@ export type RealtimeSnapshot = Readonly<{
   previousValue: RealtimeState | null;
   context: RealtimeContext;
   version: number;
+  connectivity?: ConnectivityState;
+  suspended?: boolean;
 }>;
+export type ConnectivityState = 'online' | 'offline' | 'unknown';
+export interface RealtimeConnectivitySource {
+  getSnapshot(): ConnectivityState;
+  subscribe(listener: (state: ConnectivityState) => void): Unsubscribe;
+}
 export type RealtimeLogger = Readonly<{
   debug: (message: string, metadata?: unknown) => void;
   warn: (message: string, metadata?: unknown) => void;
@@ -27,6 +34,7 @@ export type RealtimeScheduler = Readonly<{
 export type RealtimeLifecycleEvent =
   | Readonly<{ type: 'CONNECT' }>
   | Readonly<{ type: 'RECONNECT' }>
+  | Readonly<{ type: 'SUSPEND' }>
   | Readonly<{ type: 'DISCONNECT' }>
   | Readonly<{ type: 'READY' }>
   | Readonly<{ type: 'FAIL' }>
@@ -36,7 +44,9 @@ export type RealtimeLifecycleEvent =
  * Must start in idle with context.attempt equal to 0. send() commits and
  * publishes synchronously. Each snapshot reference stays stable for that
  * commit. Subscriptions are future-only; unsubscribe is idempotent and does
- * not throw.
+ * not throw. With connectivity, accept SUSPEND from idle, connecting, ready,
+ * and backoff. It returns to idle and keeps context.attempt. Also accept
+ * DISCONNECT from idle and reset context.attempt.
  */
 export interface RealtimeLifecycle {
   readonly state: RealtimeState;
@@ -129,6 +139,7 @@ export type RealtimeClientDeps<TMessage = unknown> = Readonly<{
   scheduler?: RealtimeScheduler;
   connectTimeoutMs?: number;
   logger?: RealtimeLogger;
+  connectivity?: RealtimeConnectivitySource;
 }>;
 
 export declare class RealtimeClient<TMessage = unknown> implements Disposable {
@@ -196,6 +207,7 @@ export type RealtimeClientOptions<TMessage = unknown> = Readonly<{
   /** Fallback when reconnect.jitter.random is undefined. */
   random?: () => number;
   logger?: RealtimeLogger;
+  connectivity?: RealtimeConnectivitySource;
 }>;
 
 export declare function createRealtimeClient<TMessage = unknown>(

@@ -9,6 +9,7 @@ import {
   type JsonTransportOptions,
   RealtimeClient,
   type RealtimeClientDeps,
+  type RealtimeConnectivitySource,
   type RealtimeEventMap,
   type RealtimeLifecycleEvent,
   type RealtimeLogger,
@@ -24,6 +25,10 @@ declare const events: Emitter<RealtimeEventMap<unknown>>;
 declare const transport: Transport;
 declare const keepalive: Keepalive;
 const logger: RealtimeLogger = { debug() {}, warn() {}, error() {} };
+const connectivity: RealtimeConnectivitySource = {
+  getSnapshot: () => 'unknown',
+  subscribe: () => () => {},
+};
 const jsonOptions: JsonTransportOptions = {
   maxIncomingBytes: 2_097_152,
   warn(message) {
@@ -36,6 +41,7 @@ const deps: RealtimeClientDeps<unknown> = {
   events,
   createTransport: () => new JsonTransport(transport, { warn: logger.warn }),
   createKeepalive: () => keepalive,
+  connectivity,
   retry: {
     schedule(attempt, callback) {
       const version: number = attempt;
@@ -61,6 +67,7 @@ coreAlias.stop();
 
 const defaultClient = createRealtimeClient({
   createTransport: () => transport,
+  connectivity,
   retry: null,
   logger,
 });
@@ -70,6 +77,15 @@ defaultClient.send('raw text');
 defaultClient.send({ id: 'x', method: 'sample', params: null });
 defaultClient.onMessage((message) => void message);
 defaultClient.stop();
+
+createRealtimeClient({
+  createTransport: () => transport,
+  connectivity: {
+    // @ts-expect-error Connectivity uses the declared state union.
+    getSnapshot: () => 'connected',
+    subscribe: () => () => {},
+  },
+});
 
 const jsonClient = createRealtimeClient({
   createTransport: () => new JsonTransport(transport, jsonOptions),

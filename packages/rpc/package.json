@@ -43,7 +43,8 @@
     "@bazariodev/coordination": "workspace:^"
   },
   "devDependencies": {
-    "@bazariodev/realtime": "workspace:^"
+    "@bazariodev/realtime": "workspace:^",
+    "@bazariodev/net-monitor": "workspace:^"
   },
   "publishConfig": {
     "access": "public"

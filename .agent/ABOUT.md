@@ -2,7 +2,7 @@
 
 Bazario Labs is a pnpm workspace for JavaScript SDKs with TypeScript declarations, and developer tooling, aimed at the UCaaS domain. The repository is positioned around realtime communications use cases such as SIP signaling, chat, telephony, and call-flow orchestration.
 
-This workspace currently contains thirteen packages:
+This workspace currently contains fourteen packages:
 
 - `@bazariodev/fsm`: a lightweight, configurable finite state machine library for frontend runtimes, realtime clients, and telephony workflows.
 - `@bazariodev/fsm-effects`: a state-entry effects runner around `@bazariodev/fsm` with `AbortSignal` cancellation, cleanup, and a re-entrancy-safe guarded `send`.
@@ -17,6 +17,7 @@ This workspace currently contains thirteen packages:
 - `@bazariodev/coordination`: FIFO storage, serial task executors, typed event subscriptions,
   bounded jitter, a default timer provider, and backoff callback scheduling.
 - `@bazariodev/realtime`: injected connection lifecycle and recovery over opaque messages; JSON is an opt-in transport codec.
+- `@bazariodev/net-monitor`: dependency-free browser online and offline state observation.
 - `@bazariodev/rpc`: flat request/result/error frames over RealtimeClient's message and snapshot subscriptions.
 
 ## Project Scope
@@ -65,6 +66,7 @@ The goal of the repository is to provide reusable SDK building blocks for commun
   createJitter, defaultScheduler, and createBackoffScheduler with public declarations
 - `packages/rpc`: flat request/result/error frames, bounded correlation, notifications, and correlated probes over RealtimeClient subscriptions
 - `packages/realtime`: plain JavaScript logical realtime client with opaque messages, an optional JSON codec, and transport-stub tests
+- `packages/net-monitor`: plain JavaScript browser connectivity source with no DOM type requirement
 - `examples/coordination`: private workspace example for the coordination primitives
 - `packages/*/src`: source code and types; `packages/*/src/__tests__`: package tests
 - `docs`: contributor-facing architecture and responsibility guides

@@ -14,6 +14,8 @@ export function createFsmConfig(logger) {
       idle: {
         CONNECT: { target: 'connecting' },
         RECONNECT: reconnect,
+        DISCONNECT: disconnect,
+        SUSPEND: { target: 'idle' },
         STOP: stop,
       },
       connecting: {
@@ -21,18 +23,21 @@ export function createFsmConfig(logger) {
         FAIL: { target: 'backoff', reducer: incrementAttempt },
         DISCONNECT: disconnect,
         RECONNECT: reconnect,
+        SUSPEND: { target: 'idle' },
         STOP: stop,
       },
       ready: {
         FAIL: { target: 'backoff', reducer: incrementAttempt },
         DISCONNECT: disconnect,
         RECONNECT: reconnect,
+        SUSPEND: { target: 'idle' },
         STOP: stop,
       },
       backoff: {
         RETRY: { target: 'connecting' },
         DISCONNECT: disconnect,
         RECONNECT: reconnect,
+        SUSPEND: { target: 'idle' },
         STOP: stop,
       },
     },

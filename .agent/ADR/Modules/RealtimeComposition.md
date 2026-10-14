@@ -12,6 +12,13 @@ The first realtime design repeated wire and lifecycle work across a packet chann
 
 Use one injected `RealtimeClient`. Its root factory selects defaults. The client owns connection intent, readiness, attempt replacement, retry decisions, and state events. It owns one active attempt at a time. Each attempt owns one transport; a monitor exists only when the application selects one. The client accepts messages as opaque values and defines no handshake, reserved message types, IDs, or codec.
 
+An application may inject a structural connectivity source such as
+[`@bazariodev/net-monitor`](../../../packages/net-monitor/README.md). The application owns that
+source and its lifetime; Realtime owns only its subscription and releases it on `stop()`. Known
+offline state suspends a requested connection. Browser online state is a hint that permits an
+attempt; transport open still establishes readiness. Realtime does not import or depend on the
+connectivity package. See the [Net Monitor decision and integration contract](./NetMonitor.md).
+
 The lifecycle uses `idle`, `connecting`, `ready`, and `backoff`, plus terminal `stopped`. Only `ready` permits sends. `disconnect()` clears intent and returns to `idle`; `reconnect()` replaces the attempt; `stop()` ends the client. Attempt identity and an operation generation reject callbacks from a retired attempt or older command. Cleanup clears ownership before it calls external code. Cleanup attempts every owned release even if one release fails.
 
 Snapshots are stable per committed state. Callers treat the snapshot and context as read-only. `onReady` reports `initial` until this client first reaches ready, then reports `reconnect` after later ready transitions. This reason describes this client's successful history; it does not encode an application's backoff count or desired-state policy.
@@ -54,7 +61,7 @@ RPC validates unknown incoming frames at its boundary. It ignores invalid values
 - A retry driver schedules and cancels callbacks. It does not send lifecycle events. Retry callbacks run asynchronously and stale retries are ignored.
 - No application message is queued or replayed across attempts. The application synchronizes after each ready event.
 - `createKeepalive: null` means no monitor or probe exists. Server-specific reply behavior belongs to the application's transport or probe integration, whether a monitor is selected or not.
-- Application code owns authentication, online/visibility state, wake handling, server readiness, and domain recovery.
+- Application code owns authentication, connectivity observation and source lifetime, visibility, wake handling, server readiness, and domain recovery. When a source is injected, Realtime owns connection suspension and recovery from its online, offline, and unknown state.
 
 ## Removed layers
 

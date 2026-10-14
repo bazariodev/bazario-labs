@@ -14,6 +14,7 @@ const defaultPackages = [
   '@bazariodev/fsm-delays',
   '@bazariodev/fsm-effects',
   '@bazariodev/transport',
+  '@bazariodev/net-monitor',
 ];
 const defaultPackageDirectories = [
   'coordination',
@@ -203,6 +204,7 @@ const fsm = {
   },
 };
 const events = { on() { return () => {}; }, emit() {}, stop() {} };
+const connectivity = { getSnapshot() { return 'unknown'; }, subscribe() { return () => {}; } };
 let handlers;
 const raw = {
   start(value) { handlers = value; },
@@ -210,7 +212,7 @@ const raw = {
   [Symbol.dispose]() {},
 };
 const transport = new JsonTransport(raw);
-const client = new RealtimeClient({ fsm, events, createTransport: () => transport, retry: null, createKeepalive: null });
+const client = new RealtimeClient({ fsm, events, createTransport: () => transport, retry: null, createKeepalive: null, connectivity });
 client.connect();
 handlers.onOpen();
 assert.equal(client.state, 'ready');
@@ -267,10 +269,11 @@ const fsm = {
   },
 };
 const events = { on() { return () => {}; }, emit() {}, stop() {} };
+const connectivity = { getSnapshot() { return 'unknown'; }, subscribe() { return () => {}; } };
 let handlers;
 const raw = { start(value) { handlers = value; }, send(value) { assert.equal(value, '{"value":"text"}'); }, [Symbol.dispose]() {} };
 const transport = new JsonTransport(raw);
-const client = new RealtimeClient({ fsm, events, createTransport: () => transport, retry: null, createKeepalive: null });
+const client = new RealtimeClient({ fsm, events, createTransport: () => transport, retry: null, createKeepalive: null, connectivity });
 client.connect();
 handlers.onOpen();
 assert.equal(client.state, 'ready');
@@ -286,6 +289,12 @@ declare const events: RealtimeEventPublisher<RealtimeEventMap<number>>;
 declare const transport: RealtimeTransport<number>;
 const deps: RealtimeClientDeps<number> = { fsm: lifecycle, events, createTransport: () => transport, retry: null, createKeepalive: null };
 const client = new RealtimeClient(deps);
+const source: import('@bazariodev/realtime/core').RealtimeConnectivitySource = { getSnapshot: () => 'unknown', subscribe: () => () => {} };
+const sourceDeps: RealtimeClientDeps<number> = { fsm: lifecycle, events, createTransport: () => transport, connectivity: source };
+new RealtimeClient(sourceDeps);
+// @ts-expect-error Connectivity state must use the declared union.
+const badSource: import('@bazariodev/realtime/core').RealtimeConnectivitySource = { getSnapshot: () => 'connected', subscribe: () => () => {} };
+void badSource;
 client.send(1);
 // @ts-expect-error Core payloads keep their injected type.
 client.send('wrong');
@@ -302,6 +311,12 @@ const cjsTypes = `
 import Core = require('@bazariodev/realtime/core');
 declare const deps: Core.RealtimeClientDeps<number>;
 const client = new Core.RealtimeClient(deps);
+const source: Core.RealtimeConnectivitySource = { getSnapshot: () => 'unknown', subscribe: () => () => {} };
+const sourceDeps: Core.RealtimeClientDeps<number> = { fsm: deps.fsm, events: deps.events, createTransport: () => deps.createTransport(), connectivity: source };
+new Core.RealtimeClient(sourceDeps);
+// @ts-expect-error Connectivity state must use the declared union.
+const badSource: Core.RealtimeConnectivitySource = { getSnapshot: () => 'connected', subscribe: () => () => {} };
+void badSource;
 client.send(1);
 // @ts-expect-error Core payloads keep their injected type.
 client.send('wrong');

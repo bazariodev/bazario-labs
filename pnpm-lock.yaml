@@ -109,6 +109,8 @@ importers:
         specifier: workspace:^
         version: link:../idle-watchdog
 
+  packages/net-monitor: {}
+
   packages/realtime:
     dependencies:
       '@bazariodev/coordination':
@@ -134,6 +136,9 @@ importers:
         specifier: workspace:^
         version: link:../coordination
     devDependencies:
+      '@bazariodev/net-monitor':
+        specifier: workspace:^
+        version: link:../net-monitor
       '@bazariodev/realtime':
         specifier: workspace:^
         version: link:../realtime

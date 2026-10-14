@@ -31,6 +31,24 @@ client.onReady(({ reason }) => {
 client.connect();
 ```
 
+The application can opt in to browser connectivity observation by installing
+[`@bazariodev/net-monitor`](https://www.npmjs.com/package/@bazariodev/net-monitor). The application
+owns the source and stops it after the client:
+
+```js
+import { BrowserNetMonitor } from '@bazariodev/net-monitor';
+import { createRealtimeClient } from '@bazariodev/realtime';
+
+const connectivity = new BrowserNetMonitor();
+// The application supplies createTransport and returns a fresh transport per attempt.
+const client = createRealtimeClient({ createTransport, connectivity });
+client.connect();
+
+// Later, when the application is done with both objects:
+client.stop();
+connectivity.stop();
+```
+
 `JsonTransport` accepts incoming text frames up to 1,048,576 UTF-8 bytes by default. Set `maxIncomingBytes` to a larger positive safe integer when the application needs larger frames:
 
 ```js
@@ -87,14 +105,39 @@ client.connect();
 
 A matched RPC error proves that the peer answered. It does not prove authentication or application success. The probe owns its correlation policy.
 
+### Connectivity
+
+The application may pass a source with `getSnapshot()` and `subscribe()` through the `connectivity`
+option. The source reports `online`, `offline`, or `unknown`. The application creates and stops the
+source. Realtime releases its subscription when it stops. Realtime has no dependency on
+`@bazariodev/net-monitor`; that package is one optional source implementation.
+
+Known offline state suspends a requested connection. The client retires the attempt and enters idle
+without resetting retry history. A known online state resumes the requested connection or
+accelerates backoff. After offline, `unknown` stays suspended until `connect()` or `reconnect()` clears
+the suspension. Manual `disconnect()` clears connection intent and suspension. With `retry: null`,
+an offline suspension allows one attempt after online. A failed recovery does not start another
+attempt until a new explicit command or another offline-to-online cycle.
+
+When a source is configured, snapshots add `connectivity` and `suspended`. A change to either field
+creates a new stable snapshot and advances its version, including while idle. Repeated reads return
+the same reference until the next commit. Without a source, the snapshot shape stays unchanged.
+Transport open remains the only event that enters ready.
+
+An injected lifecycle used with connectivity must accept `SUSPEND` from `idle`, `connecting`, `ready`,
+and `backoff`, and return to `idle` without resetting `context.attempt`. It must also accept
+`DISCONNECT` from `idle` and reset `context.attempt`, because a manual disconnect after suspension
+clears retry history.
+
 ## Behavior
 
 - The states are `idle`, `connecting`, `ready`, `backoff`, and terminal `stopped`. Only `ready` accepts `send()` and `probeNow()`.
-- `connect()` starts from idle. `disconnect()` returns to idle and permits a later connect. `reconnect()` replaces the current attempt. `stop()` ends the client permanently.
+- `connect()` starts from idle. `disconnect()` returns to idle, clears intent and retry history, and permits a later connect. `reconnect()` replaces the current attempt. `stop()` ends the client permanently.
+- With `connectivity`, known offline state blocks attempts and suspends requested work. A known online signal resumes it. The application owns the source lifetime; `stop()` releases only the client subscription.
 - `onReady` reports `initial` until the client first reaches ready. Later ready events report `reconnect`, including after a recoverable disconnect.
 - A connection belongs to one attempt. A configured monitor belongs to one ready attempt. The client clears ownership before cleanup and ignores callbacks from retired attempts. It releases the monitor's message subscriptions when the attempt ends, even if the monitor factory fails.
 - The newest effective lifecycle command wins. An inert `connect()` does not replace an operation already in progress. Factories run without a receiver. A connection factory must not call handlers before `start()`; `start()` may call handlers synchronously.
-- Retry callbacks are asynchronous, including zero delay. The client ignores stale retry callbacks. If `retry: null`, a connection failure returns to idle and a later `connect()` can start again.
+- Retry callbacks are asynchronous, including zero delay. The client ignores stale retry callbacks. If `retry: null` and no source is configured, a connection failure returns to idle and a later `connect()` can start again. With connectivity configured, one offline-to-online recovery attempt is also allowed; its failure does not loop.
 - `createKeepalive: null` omits the monitor and its probe. Any server-specific reply behavior belongs to the application's transport or probe integration, whether a monitor is selected or not. There is no special `false` mode.
 - `send()` returning `true` means local write admission. It does not mean delivery. Realtime does not queue or replay application messages. The application owns authentication, online state, wake handling, server readiness, and resynchronization.
 - `JsonTransport` serializes outgoing values once and parses incoming text once. It skips malformed, non-text, or over-limit input with a warning. The default incoming limit is 1,048,576 UTF-8 bytes. Set `maxIncomingBytes` to a larger positive safe integer when needed. It throws for values that `JSON.stringify` cannot serialize. It does not validate an application schema.
@@ -109,6 +152,7 @@ A matched RPC error proves that the peer answered. It does not prove authenticat
 | `createTransport` | required | Create a fresh transport for each attempt. The transport implements `start`, `send`, and `[Symbol.dispose]`. |
 | `fsm` | default FSM | Optional lifecycle with state, snapshot, `send(event)`, and `subscribe(listener)`. |
 | `events` | default publisher | Optional event publisher with `on`, `emit`, and terminal `stop`. |
+| `connectivity` | omitted | Optional source with `getSnapshot()` and `subscribe()` methods. |
 | `retry` | default retry driver | Use `null` to omit retries. A driver schedules a callback and returns cancellation. |
 | `createKeepalive` | omitted | Optional per-ready-attempt monitor factory. Use `null` to omit it. |
 | `keepalive` | omitted | Create the default Keepalive only when a probe is provided. Requires `idleMs`, `deadlineMs`, and `probe(signal)`. |
@@ -160,11 +204,17 @@ The transport `onError` callback is diagnostic. It reports an error but does not
 
 ## Errors
 
-The client and default retry options validate during construction. A monitor is built for a ready attempt, so its factory or start can fail later; the client reports the error and applies its recovery policy. A failed local write returns `false` and reports an error. Cleanup errors are logged while cleanup continues.
+The client and default retry options validate during construction. A connectivity source must return a declared state and an unsubscribe function. A monitor is built for a ready attempt, so its factory or start can fail later; the client reports the error and applies its recovery policy. A failed local write returns `false` and reports an error. Cleanup errors are logged while cleanup continues.
 
 ## TypeScript
 
-The package ships ESM and CommonJS declarations. Include `DOM` or `WebWorker` platform types. `RealtimeClient<TMessage>` and `RealtimeClientDeps<TMessage>` keep the message type paired with the injected transport and monitor.
+The package ships ESM and CommonJS declarations. `RealtimeConnectivitySource` has no DOM types.
+The package also uses `AbortSignal`. For a browser or worker project, add `DOM` or `WebWorker` to
+`compilerOptions.lib`. For Node, install Node type declarations that provide `AbortSignal`; do not
+add Node typings to `lib`. See `@bazariodev/net-monitor` for a browser connectivity source whose
+declarations do not need DOM types.
+`RealtimeClient<TMessage>` and `RealtimeClientDeps<TMessage>` keep the message type paired with the
+injected transport and monitor.
 
 
 ## License
